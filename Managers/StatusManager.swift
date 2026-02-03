@@ -63,10 +63,11 @@ public final class StatusManager {
     nonisolated(unsafe) public static let shared = StatusManager()
     
     // Paths for status persistence
-    private let baseDirectory = "/Library/Application Support/BootstrapMate"
-    private let statusPlistPath = "/Library/Application Support/BootstrapMate/status.plist"
-    private let statusJsonPath = "/Library/Application Support/BootstrapMate/status.json"
-    private let versionPlistPath = "/Library/Application Support/BootstrapMate/version.plist"
+    // Main status plist in standard Preferences location (matches preflight.sh)
+    private let statusPlistPath = "/Library/Preferences/com.github.bootstrapmate.plist"
+    // Support directory for logs and JSON status
+    private let baseDirectory = "/Library/Managed Bootstrap"
+    private let statusJsonPath = "/Library/Managed Bootstrap/status.json"
     
     private var currentRunId: String
     private var bootstrapUrl: String = ""
@@ -152,21 +153,27 @@ public final class StatusManager {
                 format: .xml,
                 options: 0
             )
-            try plistData.write(to: URL(fileURLWithPath: versionPlistPath))
-            Logger.info("Successful completion: LastRunVersion \(version) written to plist")
+            try plistData.write(to: URL(fileURLWithPath: statusPlistPath))
+            Logger.info("Successful completion: LastRunVersion \(version) written to \(statusPlistPath)")
         } catch {
             Logger.warning("Failed to write completion status to plist: \(error.localizedDescription)")
         }
     }
     
     public func getLastRunVersion() -> String? {
-        guard FileManager.default.fileExists(atPath: versionPlistPath),
-              let data = FileManager.default.contents(atPath: versionPlistPath),
+        guard FileManager.default.fileExists(atPath: statusPlistPath),
+              let data = FileManager.default.contents(atPath: statusPlistPath),
               let plist = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
               let lastVersion = plist["LastRunVersion"] as? String else {
             return nil
         }
         return lastVersion
+    }
+    
+    /// Checks if BootstrapMate has successfully completed by looking for LastRunVersion
+    /// Used by preflight.sh to decide whether to run BootstrapMate again
+    public func hasCompletedSuccessfully() -> Bool {
+        return getLastRunVersion() != nil
     }
     
     public func getPhaseStatus(phase: InstallationPhase) -> InstallationStatus? {
