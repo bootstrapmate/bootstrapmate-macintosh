@@ -52,7 +52,7 @@ public final class Logger {
             try? fileManager.createDirectory(atPath: logDirectory, withIntermediateDirectories: true)
         }
         
-        // Create log file with timestamp
+        // Create log file with timestamp (matching Windows format: YYYY-MM-DD-HHmmss.log)
         let logFileName = DateFormatter().apply {
             $0.dateFormat = "yyyy-MM-dd-HHmmss"
         }.string(from: Date()) + ".log"
