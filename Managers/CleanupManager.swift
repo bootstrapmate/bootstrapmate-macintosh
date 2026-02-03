@@ -83,6 +83,37 @@ public class CleanupManager {
             try? FileManager.default.removeItem(atPath: plistPath)
         }
     }
+    
+    /// Cleans the cache directory (removes all files in /Library/Managed Bootstrap/cache/)
+    /// This should only be called after a successful bootstrap run when retainCache = false
+    public func cleanCache() {
+        let cacheDir = BootstrapMateConstants.cacheDirectory
+        Logger.debug("Cleaning cache directory: \(cacheDir)")
+        
+        guard FileManager.default.fileExists(atPath: cacheDir) else {
+            Logger.debug("Cache directory doesn't exist, nothing to clean")
+            return
+        }
+        
+        do {
+            let files = try FileManager.default.contentsOfDirectory(atPath: cacheDir)
+            var filesRemoved = 0
+            
+            for file in files {
+                let filePath = (cacheDir as NSString).appendingPathComponent(file)
+                try FileManager.default.removeItem(atPath: filePath)
+                filesRemoved += 1
+            }
+            
+            if filesRemoved > 0 {
+                Logger.info("Cache cleaned: \(filesRemoved) file(s) removed from \(cacheDir)")
+            } else {
+                Logger.debug("Cache directory empty, no files to remove")
+            }
+        } catch {
+            Logger.warning("Failed to clean cache: \(error.localizedDescription)")
+        }
+    }
 }
 
 private func setPermissions(path: String, permissions: Int) throws {
