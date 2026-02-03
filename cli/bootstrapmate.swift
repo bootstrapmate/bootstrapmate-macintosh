@@ -13,13 +13,13 @@ import BootstrapMateCore
 @main
 struct BootstrapMate: ParsableCommand {
     static let configuration = CommandConfiguration(
-        commandName: "bootstrapmate",
+        commandName: "installapplications",
         abstract: "BootstrapMate - Swift deployment utility for ADE-driven macOS setup",
         version: BootstrapMateConstants.version
     )
 
     @Option(name: .long, help: "JSON manifest URL to load before executing stages.")
-    var jsonurl: String?
+    var url: String?
 
     @Option(name: .long, help: "Optional authorization header value (e.g., 'Basic xxx').")
     var headers: String?
@@ -42,6 +42,12 @@ struct BootstrapMate: ParsableCommand {
     @Flag(name: .long, help: "Enable verbose logging output.")
     var verbose: Bool = false
     
+    @Flag(name: .long, help: "Retain cache files after successful run (useful for debugging).")
+    var retainCache: Bool = false
+    
+    @Flag(name: .long, help: "Force bootstrap run on production devices (creates trigger file and exits).")
+    var forceRun: Bool = false
+    
     @Flag(name: .long, help: "Disable SwiftDialog UI (headless mode).")
     var noDialog: Bool = false
     
@@ -52,10 +58,33 @@ struct BootstrapMate: ParsableCommand {
     var dialogMessage: String?
 
     func run() throws {
+        // Handle --force-run flag (creates trigger file and exits)
+        if forceRun {
+            let forceRunPath = BootstrapMateConstants.forceRunFlagPath
+            let forceRunDir = BootstrapMateConstants.managedBootstrapDir
+            
+            // Ensure directory exists
+            let fileManager = FileManager.default
+            if !fileManager.fileExists(atPath: forceRunDir) {
+                try? fileManager.createDirectory(atPath: forceRunDir, withIntermediateDirectories: true)
+            }
+            
+            // Create/touch the trigger file
+            if fileManager.createFile(atPath: forceRunPath, contents: nil) {
+                print("[+] Force-run trigger created at \(forceRunPath)")
+                print("[i] LaunchDaemon will start BootstrapMate momentarily...")
+                Foundation.exit(0)
+            } else {
+                print("[X] Failed to create force-run trigger at \(forceRunPath)")
+                print("[i] Try: sudo touch \"\(forceRunPath)\"")
+                Foundation.exit(1)
+            }
+        }
+        
         // Initialize logger first
         let version = BootstrapMateConstants.version
         Logger.initialize(
-            logDirectory: "/var/log/bootstrapmate",
+            logDirectory: BootstrapMateConstants.logDirectory,
             version: version,
             verboseConsole: verbose,
             silentMode: silent
@@ -66,14 +95,15 @@ struct BootstrapMate: ParsableCommand {
         
         // Apply CLI arguments to ConfigManager (overrides MDM settings)
         ConfigManager.shared.applyCliArguments(
-            jsonUrl: jsonurl,
+            jsonUrl: url,
             headers: headers,
             followRedirects: followRedirects,
             dryRun: dryRun,
             reboot: reboot,
             userscriptOnly: userscript,
             silentMode: silent,
-            verboseMode: verbose
+            verboseMode: verbose,
+            retainCache: retainCache
         )
         
         // Debug: Show effective configuration
