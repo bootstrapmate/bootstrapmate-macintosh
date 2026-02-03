@@ -60,3 +60,12 @@ fastlane/report.xml
 fastlane/Preview.html
 fastlane/screenshots/**/*.png
 fastlane/test_output
+
+# Build artifacts
+build/
+*.pkg
+DerivedData/
+
+# Credentials (keep example, ignore actual)
+setup-credentials.sh
+!setup-credentials.example.sh

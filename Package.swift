@@ -7,7 +7,7 @@ let package = Package(
         .macOS(.v13)
     ],
     products: [
-        .executable(name: "bootstrapmate", targets: ["BootstrapMateCLI"]),
+        .executable(name: "installapplications", targets: ["BootstrapMateCLI"]),
         .library(name: "BootstrapMateCore", targets: ["BootstrapMateCore"])
     ],
     dependencies: [
@@ -19,11 +19,9 @@ let package = Package(
             path: ".",
             exclude: [
                 "cli",
-                "Resources",
-                "scripts",
-                "examples",
                 "LICENSE",
-                "README.md"
+                "docs",
+                "build"
             ],
             sources: [
                 "Managers",
