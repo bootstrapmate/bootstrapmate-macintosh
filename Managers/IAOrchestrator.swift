@@ -93,13 +93,20 @@ public final class IAOrchestrator {
         
         if success {
             StatusManager.shared.writeSuccessfulCompletionPlist()
-            Logger.writeCompletion("All stages completed successfully")
+            Logger.writeCompletion("All stages completed successfully in \(String(format: "%.1f", duration))s")
             
             DialogManager.shared.complete(message: "Setup Complete!")
             
             // Allow user to see completion before closing
             if config.enableDialog && DialogManager.shared.isDialogAvailable() {
                 Thread.sleep(forTimeInterval: 3)
+            }
+            
+            // Clean cache if retainCache is false (default behavior)
+            if !ConfigManager.shared.config.retainCache {
+                CleanupManager.shared.cleanCache()
+            } else {
+                Logger.debug("Retaining cache as configured (--retain-cache enabled)")
             }
         } else {
             Logger.error("Installation completed with errors")
@@ -115,8 +122,8 @@ public final class IAOrchestrator {
             CleanupManager.shared.triggerReboot(after: 5)
         }
         
-        // Register cleanup tasks
-        registerCleanupTasks()
+        // Note: LaunchDaemon is installed with the pkg, not registered at runtime
+        // Cleanup of the daemon happens when the device is fully provisioned (via preflight exit 0)
         
         Logger.writeSessionSummary()
         return success
@@ -430,30 +437,19 @@ public final class IAOrchestrator {
         DialogManager.shared.complete(message: success ? "Device already configured" : "Setup failed")
         Thread.sleep(forTimeInterval: 2)
         DialogManager.shared.close()
-        registerCleanupTasks()
-        Logger.writeSessionSummary()
-    }
-}
-
-// MARK: - Cleanup Registration
-
-public func registerCleanupTasks() {
-    do {
-        try CleanupManager.shared.registerLaunchDaemon(
-            identifier: BootstrapMateConstants.daemonIdentifier,
-            executablePath: BootstrapMateConstants.executablePath
-        )
         
-        let (username, uid) = SessionManager.shared.getConsoleUser()
-        if let userUID = uid, username != nil {
-            CleanupManager.shared.registerLaunchAgent(
-                identifier: BootstrapMateConstants.daemonIdentifier,
-                path: BootstrapMateConstants.executablePath,
-                userUID: userUID
-            )
-        }
-    } catch {
-        Logger.error("Failed to register cleanup tasks: \(error.localizedDescription)")
+        // Remove daemon when device is fully provisioned (preflight exit 0)
+        if success {
+            CleanupManager.shared.removeLaunchDaemon(identifier: BootstrapMateConstants.daemonIdentifier)
+            Logger.info("Removed LaunchDaemon \\(BootstrapMateConstants.daemonIdentifier) - device fully provisioned")            
+            // Clean cache if retainCache is false (default behavior)
+            if !ConfigManager.shared.config.retainCache {
+                CleanupManager.shared.cleanCache()
+            } else {
+                Logger.debug("Retaining cache as configured (--retain-cache enabled)")
+            }        }
+        
+        Logger.writeSessionSummary()
     }
 }
 
