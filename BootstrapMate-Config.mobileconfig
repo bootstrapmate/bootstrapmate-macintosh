@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>PayloadContent</key>
+	<array>
+		<dict>
+			<key>PayloadContent</key>
+			<dict>
+				<key>url</key>
+				<string>https://example.com/bootstrap/manifest.json</string>
+				<key>headers</key>
+				<string>Bearer YOUR_AUTH_TOKEN_HERE</string>
+				<key>followRedirects</key>
+				<true/>
+				<key>retainCache</key>
+				<false/>
+				<key>silentMode</key>
+				<false/>
+				<key>verboseMode</key>
+				<false/>
+				<key>reboot</key>
+				<false/>
+			</dict>
+			<key>PayloadDescription</key>
+			<string>Configures BootstrapMate with all available settings. Remove unused keys or set to desired values.</string>
+			<key>PayloadDisplayName</key>
+			<string>BootstrapMate Configuration</string>
+			<key>PayloadIdentifier</key>
+			<string>com.example.bootstrap.config.prefs</string>
+			<key>PayloadOrganization</key>
+			<string>Your Organization</string>
+			<key>PayloadType</key>
+			<string>com.apple.configuration.plist</string>
+			<key>PayloadUUID</key>
+			<string>4A5E8F1B-2C3D-4E5F-6A7B-8C9D0E1F2A3B</string>
+			<key>PayloadVersion</key>
+			<integer>1</integer>
+			<key>PreferenceDomain</key>
+			<string>com.github.bootstrapmate</string>
+		</dict>
+	</array>
+	<key>PayloadDescription</key>
+	<string>Configures BootstrapMate to fetch deployment manifest. Deploy during Setup Assistant > Remote Management phase.</string>
+	<key>PayloadDisplayName</key>
+	<string>BootstrapMate Configuration</string>
+	<key>PayloadIdentifier</key>
+	<string>com.example.bootstrap.config</string>
+	<key>PayloadOrganization</key>
+	<string>Your Organization</string>
+	<key>PayloadScope</key>
+	<string>System</string>
+	<key>PayloadType</key>
+	<string>Configuration</string>
+	<key>PayloadUUID</key>
+	<string>7B8C9D0E-1F2A-3B4C-5D6E-7F8A9B0C1D2E</string>
+	<key>PayloadVersion</key>
+	<integer>1</integer>
+</dict>
+</plist>
