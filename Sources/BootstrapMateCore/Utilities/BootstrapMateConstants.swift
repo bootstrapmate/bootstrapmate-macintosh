@@ -1,8 +1,8 @@
 import Foundation
 
 public enum BootstrapMateConstants {
-    public static let daemonIdentifier = "io.bootstrapmate.bootstrapmate"
-    public static let executablePath = "/Applications/BootstrapMate.app/Contents/MacOS/bootstrapmate"
+    public static let daemonIdentifier = "com.github.bootstrapmate"
+    public static let executablePath = "/Applications/Utilities/BootstrapMate.app/Contents/MacOS/installapplications"
     public static let defaultRetryCount = 3
     public static let defaultRetryDelay = 5
     

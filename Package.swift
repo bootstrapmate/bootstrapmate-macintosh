@@ -15,29 +15,18 @@ let package = Package(
     ],
     targets: [
         .target(
-            name: "BootstrapMateCore",
-            path: ".",
-            exclude: [
-                "cli",
-                "Resources",
-                "scripts",
-                "examples",
-                "LICENSE",
-                "README.md"
-            ],
-            sources: [
-                "Managers",
-                "Utilities"
-            ]
+            name: "BootstrapMateCore"
         ),
         .executableTarget(
             name: "BootstrapMateCLI",
             dependencies: [
                 "BootstrapMateCore",
                 .product(name: "ArgumentParser", package: "swift-argument-parser")
-            ],
-            path: "cli",
-            sources: ["."]
+            ]
+        ),
+        .testTarget(
+            name: "BootstrapMateCoreTests",
+            dependencies: ["BootstrapMateCore"]
         )
     ]
 )

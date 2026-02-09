@@ -90,6 +90,7 @@ public final class IAOrchestrator {
         
         // Completion
         let duration = Date().timeIntervalSince(startTime)
+        Logger.info("Bootstrap session completed in \(String(format: "%.1f", duration))s")
         
         if success {
             StatusManager.shared.writeSuccessfulCompletionPlist()
@@ -438,22 +439,10 @@ public final class IAOrchestrator {
 // MARK: - Cleanup Registration
 
 public func registerCleanupTasks() {
-    do {
-        try CleanupManager.shared.registerLaunchDaemon(
-            identifier: BootstrapMateConstants.daemonIdentifier,
-            executablePath: BootstrapMateConstants.executablePath
-        )
-        
-        let (username, uid) = SessionManager.shared.getConsoleUser()
-        if let userUID = uid, username != nil {
-            CleanupManager.shared.registerLaunchAgent(
-                identifier: BootstrapMateConstants.daemonIdentifier,
-                path: BootstrapMateConstants.executablePath,
-                userUID: userUID
-            )
-        }
-    } catch {
-        Logger.error("Failed to register cleanup tasks: \(error.localizedDescription)")
-    }
+    // The LaunchDaemon is already installed via the package and loaded by postinstall.
+    // We don't need to re-register it here - that was causing the wrong plist to be created.
+    // The daemon with NetworkState keepalive will restart us when needed.
+    
+    Logger.info("Session complete - LaunchDaemon \(BootstrapMateConstants.daemonIdentifier) will handle future runs")
 }
 
