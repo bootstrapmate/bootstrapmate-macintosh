@@ -45,20 +45,27 @@ public final class NetworkManager {
         }
 
         let session = URLSession(configuration: .default)
-        let task = session.downloadTask(with: request) { tempURL, _, error in
+        
+        // Use dataTask instead of downloadTask to avoid system temp directory
+        // which is read-only during Setup Assistant
+        let task = session.dataTask(with: request) { data, _, error in
             if let error = error {
                 completion(.failure(error))
                 return
             }
-            guard let tempURL = tempURL else {
-                completion(.failure(DownloadError.requestFailed("No temp file.")))
+            guard let data = data else {
+                completion(.failure(DownloadError.requestFailed("No data received.")))
                 return
             }
             do {
-                if FileManager.default.fileExists(atPath: path) {
-                    try FileManager.default.removeItem(atPath: path)
+                // Ensure parent directory exists
+                let parentDir = URL(fileURLWithPath: path).deletingLastPathComponent().path
+                if !FileManager.default.fileExists(atPath: parentDir) {
+                    try FileManager.default.createDirectory(atPath: parentDir, withIntermediateDirectories: true, attributes: nil)
                 }
-                try FileManager.default.moveItem(at: tempURL, to: URL(fileURLWithPath: path))
+                
+                // Write directly to destination (no atomic - avoids temp file on read-only filesystem)
+                try data.write(to: URL(fileURLWithPath: path))
                 completion(.success(()))
             } catch {
                 completion(.failure(error))
