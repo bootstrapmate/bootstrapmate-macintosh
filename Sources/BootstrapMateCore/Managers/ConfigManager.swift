@@ -4,7 +4,7 @@
 //
 //  Configuration loader with fallback chain:
 //  1. CLI arguments (highest priority)
-//  2. MDM managed preferences (com.bootstrapmate.config)
+//  2. MDM managed preferences
 //  3. Embedded/default values (lowest priority)
 //
 
@@ -20,7 +20,6 @@ public struct BootstrapMateConfig {
     public var userscriptOnly: Bool
     public var silentMode: Bool
     public var verboseMode: Bool
-    public var retainCache: Bool        // If false, cache is cleaned after successful run
     public var customInstallPath: String?
     public var daemonIdentifier: String
     public var agentIdentifier: String
@@ -34,7 +33,6 @@ public struct BootstrapMateConfig {
         userscriptOnly: Bool = false,
         silentMode: Bool = false,
         verboseMode: Bool = false,
-        retainCache: Bool = false,
         customInstallPath: String? = nil,
         daemonIdentifier: String = BootstrapMateConstants.daemonIdentifier,
         agentIdentifier: String = BootstrapMateConstants.daemonIdentifier
@@ -47,7 +45,6 @@ public struct BootstrapMateConfig {
         self.userscriptOnly = userscriptOnly
         self.silentMode = silentMode
         self.verboseMode = verboseMode
-        self.retainCache = retainCache
         self.customInstallPath = customInstallPath
         self.daemonIdentifier = daemonIdentifier
         self.agentIdentifier = agentIdentifier
@@ -59,13 +56,12 @@ public final class ConfigManager {
     
     // MDM preference domains to check (in order of priority)
     private let mdmPreferenceDomains = [
-        BootstrapMateConstants.preferenceDomain,  // Primary domain: com.github.bootstrapmate
-        "com.bootstrapmate.config",               // Alternative domain
-        "io.macadmins.installapplications"        // Legacy InstallApplications compatibility
+        "com.github.bootstrapmate",           // Primary BootstrapMate domain (MDM profile)
+        "io.macadmins.installapplications"    // InstallApplications compatibility
     ]
     
     // Default installation path
-    private let defaultInstallPath = "/Library/Managed Bootstrap"
+    private let defaultInstallPath = "/Library/Application Support/BootstrapMate"
     
     /// Current active configuration
     public private(set) var config: BootstrapMateConfig
@@ -92,8 +88,7 @@ public final class ConfigManager {
         reboot: Bool? = nil,
         userscriptOnly: Bool? = nil,
         silentMode: Bool? = nil,
-        verboseMode: Bool? = nil,
-        retainCache: Bool? = nil
+        verboseMode: Bool? = nil
     ) {
         if let url = jsonUrl, !url.isEmpty {
             config.jsonUrl = url
@@ -134,11 +129,6 @@ public final class ConfigManager {
             config.verboseMode = verbose
             Logger.debug("CLI override: verboseMode = \(verbose)")
         }
-        
-        if let retain = retainCache {
-            config.retainCache = retain
-            Logger.debug("CLI override: retainCache = \(retain)")
-        }
     }
     
     /// Get the effective JSON URL (from config or fallback)
@@ -154,6 +144,28 @@ public final class ConfigManager {
     /// Check if configuration is valid (has minimum required settings)
     public func isValid() -> Bool {
         // Must have a JSON URL to proceed
+        return config.jsonUrl != nil && !config.jsonUrl!.isEmpty
+    }
+    
+    /// Reload MDM managed preferences (call when waiting for MDM profile to be applied)
+    /// Returns true if a valid JSON URL was found
+    public func reloadManagedPreferences() -> Bool {
+        // Clear existing URL to force re-read
+        config.jsonUrl = nil
+        
+        // Try each domain in priority order
+        for domain in mdmPreferenceDomains {
+            if loadPreferencesFromDomain(domain) {
+                if config.jsonUrl != nil && !config.jsonUrl!.isEmpty {
+                    Logger.info("Loaded managed preferences from: \(domain)")
+                    return true
+                }
+            }
+        }
+        
+        // Also check for managed preferences via MDM profile
+        loadFromManagedAppConfig()
+        
         return config.jsonUrl != nil && !config.jsonUrl!.isEmpty
     }
     
@@ -212,168 +224,118 @@ public final class ConfigManager {
     private func loadManagedPreferences() {
         Logger.debug("Loading managed preferences...")
         
-        // First: Try CFPreferences (correct way to read MDM-managed preferences)
-        if loadFromCFPreferences() {
-            return
-        }
-        
-        // Second: Try UserDefaults persistentDomain (for local preferences)
+        // Try each domain in priority order
         for domain in mdmPreferenceDomains {
             if loadPreferencesFromDomain(domain) {
-                Logger.info("Loaded preferences from UserDefaults domain: \(domain)")
+                Logger.info("Loaded managed preferences from: \(domain)")
                 return
             }
         }
         
-        // Third: Try managed preference plist files directly
+        // Also check for managed preferences via MDM profile
         loadFromManagedAppConfig()
         
-        if config.jsonUrl == nil {
-            Logger.debug("No MDM managed preferences found, using defaults")
-        }
-    }
-    
-    /// Load preferences via CFPreferences (correct API for MDM-managed settings)
-    private func loadFromCFPreferences() -> Bool {
-        let domain = BootstrapMateConstants.preferenceDomain as CFString
-        
-        // CRITICAL: Force synchronization with managed preferences database
-        // This is essential during enrollment when profiles are just being installed
-        // Without this, preferences may not be visible immediately
-        CFPreferencesSynchronize(domain, kCFPreferencesAnyUser, kCFPreferencesCurrentHost)
-        
-        Logger.debug("Forcing CFPreferences synchronization for domain: \(domain)")
-        
-        // CFPreferencesCopyAppValue reads from all preference sources including managed
-        if let url = CFPreferencesCopyAppValue("url" as CFString, domain) as? String {
-            config.jsonUrl = url
-            Logger.info("Loaded 'url' from CFPreferences: \(url)")
-        }
-        
-        if let auth = CFPreferencesCopyAppValue("headers" as CFString, domain) as? String {
-            config.authorizationHeader = auth
-            Logger.debug("Loaded 'headers' from CFPreferences")
-        }
-        
-        if let redirects = CFPreferencesCopyAppValue("followRedirects" as CFString, domain) as? Bool {
-            config.followRedirects = redirects
-        }
-        
-        if let retain = CFPreferencesCopyAppValue("retainCache" as CFString, domain) as? Bool {
-            config.retainCache = retain
-            Logger.debug("Loaded 'retainCache' from CFPreferences: \(retain)")
-        }
-        
-        if let silent = CFPreferencesCopyAppValue("silentMode" as CFString, domain) as? Bool {
-            config.silentMode = silent
-        }
-        
-        if let verbose = CFPreferencesCopyAppValue("verboseMode" as CFString, domain) as? Bool {
-            config.verboseMode = verbose
-        }
-        
-        if let reboot = CFPreferencesCopyAppValue("reboot" as CFString, domain) as? Bool {
-            config.reboot = reboot
-        }
-        
-        if config.jsonUrl != nil {
-            Logger.info("Loaded managed preferences from CFPreferences domain: \(domain)")
-            return true
-        }
-        
-        Logger.debug("No managed preferences found in CFPreferences domain: \(domain)")
-        return false
+        Logger.debug("No MDM managed preferences found, using defaults")
     }
     
     private func loadPreferencesFromDomain(_ domain: String) -> Bool {
-        guard let prefs = UserDefaults.standard.persistentDomain(forName: domain),
-              !prefs.isEmpty else {
-            return false
+        // First try CFPreferences (works better for MDM-pushed preferences)
+        let cfDomain = domain as CFString
+        
+        // Check for URL key (various names)
+        let urlKeys = ["url", "jsonurl", "JsonUrl", "ConfigURL", "ManifestURL"]
+        for key in urlKeys {
+            if let value = CFPreferencesCopyAppValue(key as CFString, cfDomain) as? String {
+                config.jsonUrl = value
+                Logger.debug("Found \(key) in \(domain): \(value)")
+                break
+            }
         }
         
-        // Map various possible key names ("url" is preferred, matching Windows version)
-        if let url = prefs["url"] as? String ??          // Preferred key (matches Windows)
-                     prefs["Url"] as? String ??
-                     prefs["jsonurl"] as? String ??       // Legacy key
-                     prefs["JsonUrl"] as? String ?? 
-                     prefs["ConfigURL"] as? String ?? 
-                     prefs["ManifestURL"] as? String {
-            config.jsonUrl = url
+        // Check for headers
+        let headerKeys = ["headers", "Headers", "AuthorizationHeader"]
+        for key in headerKeys {
+            if let value = CFPreferencesCopyAppValue(key as CFString, cfDomain) as? String {
+                config.authorizationHeader = value
+                break
+            }
         }
         
-        if let auth = prefs["headers"] as? String ?? 
-                      prefs["Headers"] as? String ?? 
-                      prefs["AuthorizationHeader"] as? String {
-            config.authorizationHeader = auth
+        // Check for followRedirects
+        if let value = CFPreferencesCopyAppValue("followRedirects" as CFString, cfDomain) as? Bool {
+            config.followRedirects = value
+        } else if let value = CFPreferencesCopyAppValue("FollowRedirects" as CFString, cfDomain) as? Bool {
+            config.followRedirects = value
         }
         
-        if let redirects = prefs["followRedirects"] as? Bool ?? 
-                          prefs["FollowRedirects"] as? Bool {
-            config.followRedirects = redirects
+        // Check for silentMode
+        let silentKeys = ["silentMode", "SilentMode", "silent"]
+        for key in silentKeys {
+            if let value = CFPreferencesCopyAppValue(key as CFString, cfDomain) as? Bool {
+                config.silentMode = value
+                break
+            }
         }
         
-        if let silent = prefs["silentMode"] as? Bool ?? 
-                       prefs["SilentMode"] as? Bool ?? 
-                       prefs["silent"] as? Bool {
-            config.silentMode = silent
+        // Check for verboseMode
+        let verboseKeys = ["verboseMode", "VerboseMode", "verbose"]
+        for key in verboseKeys {
+            if let value = CFPreferencesCopyAppValue(key as CFString, cfDomain) as? Bool {
+                config.verboseMode = value
+                break
+            }
         }
         
-        if let verbose = prefs["verboseMode"] as? Bool ?? 
-                        prefs["VerboseMode"] as? Bool ?? 
-                        prefs["verbose"] as? Bool {
-            config.verboseMode = verbose
+        // Check for reboot
+        if let value = CFPreferencesCopyAppValue("reboot" as CFString, cfDomain) as? Bool {
+            config.reboot = value
+        } else if let value = CFPreferencesCopyAppValue("Reboot" as CFString, cfDomain) as? Bool {
+            config.reboot = value
         }
         
-        if let retain = prefs["retainCache"] as? Bool ?? 
-                       prefs["RetainCache"] as? Bool {
-            config.retainCache = retain
+        // Check for install path
+        let pathKeys = ["installPath", "InstallPath", "iapath"]
+        for key in pathKeys {
+            if let value = CFPreferencesCopyAppValue(key as CFString, cfDomain) as? String {
+                config.customInstallPath = value
+                break
+            }
         }
         
-        if let reboot = prefs["reboot"] as? Bool ?? 
-                       prefs["Reboot"] as? Bool {
-            config.reboot = reboot
+        // Check for daemon identifier
+        if let value = CFPreferencesCopyAppValue("daemonIdentifier" as CFString, cfDomain) as? String {
+            config.daemonIdentifier = value
+        } else if let value = CFPreferencesCopyAppValue("ldidentifier" as CFString, cfDomain) as? String {
+            config.daemonIdentifier = value
         }
         
-        if let path = prefs["installPath"] as? String ?? 
-                     prefs["InstallPath"] as? String ?? 
-                     prefs["iapath"] as? String {
-            config.customInstallPath = path
-        }
-        
-        if let daemonId = prefs["daemonIdentifier"] as? String ?? 
-                         prefs["ldidentifier"] as? String {
-            config.daemonIdentifier = daemonId
-        }
-        
-        if let agentId = prefs["agentIdentifier"] as? String ?? 
-                        prefs["laidentifier"] as? String {
-            config.agentIdentifier = agentId
+        // Check for agent identifier
+        if let value = CFPreferencesCopyAppValue("agentIdentifier" as CFString, cfDomain) as? String {
+            config.agentIdentifier = value
+        } else if let value = CFPreferencesCopyAppValue("laidentifier" as CFString, cfDomain) as? String {
+            config.agentIdentifier = value
         }
         
         return config.jsonUrl != nil
     }
     
     private func loadFromManagedAppConfig() {
-        // Check for MDM-deployed configuration profile plist files
-        // System-scoped MDM profiles write directly to /Library/Managed Preferences/
-        let primaryDomain = BootstrapMateConstants.preferenceDomain
-        let paths = [
-            "/Library/Managed Preferences/\(primaryDomain).plist",
-            "/Library/Managed Preferences/com.bootstrapmate.config.plist",
-            "/Library/Managed Preferences/io.macadmins.installapplications.plist"
+        // Check for MDM-deployed configuration profile
+        // This handles the case where config is delivered via custom configuration profile
+        let configDomains = [
+            "com.github.bootstrapmate"
         ]
         
-        for path in paths {
-            if FileManager.default.fileExists(atPath: path) {
-                Logger.debug("Found managed preferences plist at: \(path)")
-                
-                if let plist = NSDictionary(contentsOfFile: path) as? [String: Any] {
-                    if let url = plist["url"] as? String ??
-                                 plist["Url"] as? String ??
-                                 plist["jsonurl"] as? String ??
-                                 plist["JsonUrl"] as? String {
+        for domain in configDomains {
+            let managedConfigPath = "/Library/Managed Preferences/\(NSUserName())/\(domain).plist"
+            let systemManagedPath = "/Library/Managed Preferences/\(domain).plist"
+            
+            for path in [managedConfigPath, systemManagedPath] {
+                if FileManager.default.fileExists(atPath: path),
+                   let plist = NSDictionary(contentsOfFile: path) as? [String: Any] {
+                    
+                    if let url = plist["url"] as? String ?? plist["jsonurl"] as? String ?? plist["JsonUrl"] as? String {
                         config.jsonUrl = url
-                        Logger.info("Loaded 'url' from plist: \(url)")
                     }
                     
                     if let auth = plist["headers"] as? String ?? plist["Headers"] as? String {
@@ -384,14 +346,8 @@ public final class ConfigManager {
                         config.followRedirects = redirects
                     }
                     
-                    if let retain = plist["retainCache"] as? Bool {
-                        config.retainCache = retain
-                    }
-                    
-                    if config.jsonUrl != nil {
-                        Logger.info("Loaded config from managed preferences plist: \(path)")
-                        return
-                    }
+                    Logger.info("Loaded config from managed preferences plist: \(path)")
+                    return
                 }
             }
         }

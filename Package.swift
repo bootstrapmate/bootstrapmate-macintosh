@@ -7,7 +7,7 @@ let package = Package(
         .macOS(.v13)
     ],
     products: [
-        .executable(name: "installapplications", targets: ["BootstrapMateCLI"]),
+        .executable(name: "bootstrapmate", targets: ["BootstrapMateCLI"]),
         .library(name: "BootstrapMateCore", targets: ["BootstrapMateCore"])
     ],
     dependencies: [
@@ -15,27 +15,18 @@ let package = Package(
     ],
     targets: [
         .target(
-            name: "BootstrapMateCore",
-            path: ".",
-            exclude: [
-                "cli",
-                "LICENSE",
-                "docs",
-                "build"
-            ],
-            sources: [
-                "Managers",
-                "Utilities"
-            ]
+            name: "BootstrapMateCore"
         ),
         .executableTarget(
             name: "BootstrapMateCLI",
             dependencies: [
                 "BootstrapMateCore",
                 .product(name: "ArgumentParser", package: "swift-argument-parser")
-            ],
-            path: "cli",
-            sources: ["."]
+            ]
+        ),
+        .testTarget(
+            name: "BootstrapMateCoreTests",
+            dependencies: ["BootstrapMateCore"]
         )
     ]
 )

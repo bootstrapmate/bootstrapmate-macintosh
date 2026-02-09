@@ -1,0 +1,79 @@
+#!/bin/zsh
+# BootstrapMate postinstall
+# Sets up symlink, log directory, and loads the LaunchDaemon
+
+set -e
+
+# Debug logging function
+log() {
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" | tee -a /tmp/bootstrapmate-postinstall.log
+}
+
+log "=== BootstrapMate postinstall started ==="
+
+APP_PATH="/Applications/Utilities/BootstrapMate.app"
+BINARY_PATH="${APP_PATH}/Contents/MacOS/installapplications"
+SYMLINK_DIR="/usr/local/bootstrapmate"
+SYMLINK_PATH="${SYMLINK_DIR}/installapplications"
+LAUNCHDAEMON_PATH="/Library/LaunchDaemons/com.github.bootstrapmate.plist"
+
+# Managed Bootstrap directory structure
+MANAGED_DIR="/Library/Managed Bootstrap"
+LOG_DIR="${MANAGED_DIR}/logs"
+CACHE_DIR="${MANAGED_DIR}/cache"
+
+log "Creating directories..."
+
+# Create Managed Bootstrap directories FIRST (before daemon can start)
+mkdir -p "${LOG_DIR}"
+chmod 755 "${LOG_DIR}"
+mkdir -p "${CACHE_DIR}"
+chmod 755 "${CACHE_DIR}"
+
+log "Directories created: LOG_DIR=${LOG_DIR}, CACHE_DIR=${CACHE_DIR}"
+
+# Verify binary was installed in app bundle
+if [[ -x "${BINARY_PATH}" ]]; then
+    log "Binary found: ${BINARY_PATH}"
+    
+    # Get binary info
+    log "Binary architecture: $(file ${BINARY_PATH})"
+    
+    # Create symlink directory and symlink
+    rm -f "${SYMLINK_DIR}/.placeholder" 2>/dev/null || true
+    mkdir -p "${SYMLINK_DIR}"
+    ln -sf "${BINARY_PATH}" "${SYMLINK_PATH}"
+    log "Symlink created: ${SYMLINK_PATH} -> ${BINARY_PATH}"
+    
+    # Verify symlink works
+    if [[ -x "${SYMLINK_PATH}" ]]; then
+        log "Symlink is executable"
+        VER=$("${SYMLINK_PATH}" --version 2>&1 || echo "version check failed")
+        log "Version: ${VER}"
+    else
+        log "ERROR: Symlink is not executable!"
+    fi
+    
+    # Set permissions on LaunchDaemon
+    if [[ -f "${LAUNCHDAEMON_PATH}" ]]; then
+        chmod 644 "${LAUNCHDAEMON_PATH}"
+        chown root:wheel "${LAUNCHDAEMON_PATH}"
+        log "LaunchDaemon permissions set"
+        
+        # Load the LaunchDaemon
+        log "Loading LaunchDaemon..."
+        /bin/launchctl load -w "${LAUNCHDAEMON_PATH}" 2>&1 | tee -a /tmp/bootstrapmate-postinstall.log || log "launchctl load returned non-zero"
+        log "LaunchDaemon load attempted"
+    else
+        log "ERROR: LaunchDaemon plist not found: ${LAUNCHDAEMON_PATH}"
+    fi
+    
+    log "BootstrapMate installed successfully"
+else
+    log "ERROR: BootstrapMate binary not found at ${BINARY_PATH}"
+    exit 1
+fi
+
+log "=== BootstrapMate postinstall completed ==="
+
+exit 0
