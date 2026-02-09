@@ -41,7 +41,7 @@ public final class Logger {
         self.verboseConsole = verboseConsole
         self.silentMode = silentMode
         self.sessionStartTime = Date()
-        self.osLog = OSLog(subsystem: "io.bootstrapmate.bootstrapmate", category: "general")
+        self.osLog = OSLog(subsystem: "com.github.bootstrapmate", category: "general")
         
         self.dateFormatter = DateFormatter()
         self.dateFormatter.dateFormat = "yyyy-MM-dd HH:mm:ss.SSS"
@@ -79,7 +79,7 @@ public final class Logger {
     }
     
     public static func initialize(
-        logDirectory: String = "/var/log/bootstrapmate",
+        logDirectory: String = "/Library/Managed Bootstrap/logs",
         version: String = "Unknown",
         verboseConsole: Bool = false,
         silentMode: Bool = false
