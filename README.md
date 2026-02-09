@@ -42,7 +42,7 @@ BootstrapMate uses environment variables for signing configuration. These should
 
 1. Copy the example environment file:
    ```bash
-   cp .env.example .env
+   cp resources/.env.example .env
    ```
 
 2. Edit `.env` with your Apple Developer credentials:
@@ -123,6 +123,11 @@ packaging/                - Installer source files
   scripts/                - Postinstall scripts
   LaunchDaemons/          - LaunchDaemon plist
   resources/              - App bundle resources
+resources/                - Examples and helper scripts
+  .env.example            - Environment configuration template
+  preflight.sh            - Pre-bootstrap device validation script
+  setup-credentials.example.sh - Credentials setup example
+  setup-notarization.sh   - Notarization setup helper
 ```
 
 ### Testing
@@ -144,7 +149,7 @@ The following files should **never** be committed:
 - `.env` - Contains your private credentials (blocked by .gitignore)
 
 The following files **should** be committed:
-- `.env.example` - Template for other developers
+- `resources/.env.example` - Template for other developers
 - `Makefile` - Contains no sensitive information
 
 ## Security
