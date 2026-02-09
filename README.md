@@ -2,6 +2,29 @@
 
 A macOS bootstrap orchestration tool for automated device provisioning.
 
+## Features
+
+- Universal binary (arm64 + x86_64)
+- Automated package installation from JSON manifest
+- SwiftDialog integration for UI feedback
+- Session tracking and resume capability
+- Network-aware with retry logic
+- LaunchDaemon for automatic execution
+- Comprehensive logging
+
+## Versioning
+
+BootstrapMate uses date-based versioning: `YYYY.MM.DD.HHMM`
+
+Examples:
+- `2026.02.08.2230` - Built February 8, 2026 at 22:30 UTC
+- Auto-generated from build timestamp unless `VERSION` is specified
+
+Check installed version:
+```bash
+/usr/local/bootstrapmate/installapplications --version
+```
+
 ## Building
 
 ### Prerequisites
@@ -82,6 +105,37 @@ make build \
   SIGNING_IDENTITY_PKG="Developer ID Installer: Your Name (TEAM_ID)" \
   NOTARIZATION_PROFILE="your_profile" \
   NOTARIZATION_TEAM_ID="YOUR_TEAM_ID"
+```
+
+## Development
+
+### Project Structure
+
+```
+Sources/
+  BootstrapMateCore/      - Core library code
+    Managers/             - Business logic managers
+    Utilities/            - Shared utilities and constants
+  BootstrapMateCLI/       - Command-line executable
+Tests/
+  BootstrapMateCoreTests/ - Test suite
+packaging/                - Installer source files
+  scripts/                - Postinstall scripts
+  LaunchDaemons/          - LaunchDaemon plist
+  resources/              - App bundle resources
+```
+
+### Testing
+
+```bash
+# Run tests
+swift test
+
+# Build debug version
+swift build
+
+# Build release (universal)
+swift build -c release --arch arm64 --arch x86_64
 ```
 
 ### Version Control
