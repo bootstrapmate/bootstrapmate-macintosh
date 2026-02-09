@@ -90,23 +90,17 @@ public final class IAOrchestrator {
         
         // Completion
         let duration = Date().timeIntervalSince(startTime)
+        Logger.info("Bootstrap session completed in \(String(format: "%.1f", duration))s")
         
         if success {
             StatusManager.shared.writeSuccessfulCompletionPlist()
-            Logger.writeCompletion("All stages completed successfully in \(String(format: "%.1f", duration))s")
+            Logger.writeCompletion("All stages completed successfully")
             
             DialogManager.shared.complete(message: "Setup Complete!")
             
             // Allow user to see completion before closing
             if config.enableDialog && DialogManager.shared.isDialogAvailable() {
                 Thread.sleep(forTimeInterval: 3)
-            }
-            
-            // Clean cache if retainCache is false (default behavior)
-            if !ConfigManager.shared.config.retainCache {
-                CleanupManager.shared.cleanCache()
-            } else {
-                Logger.debug("Retaining cache as configured (--retain-cache enabled)")
             }
         } else {
             Logger.error("Installation completed with errors")
@@ -122,8 +116,8 @@ public final class IAOrchestrator {
             CleanupManager.shared.triggerReboot(after: 5)
         }
         
-        // Note: LaunchDaemon is installed with the pkg, not registered at runtime
-        // Cleanup of the daemon happens when the device is fully provisioned (via preflight exit 0)
+        // Register cleanup tasks
+        registerCleanupTasks()
         
         Logger.writeSessionSummary()
         return success
@@ -437,19 +431,18 @@ public final class IAOrchestrator {
         DialogManager.shared.complete(message: success ? "Device already configured" : "Setup failed")
         Thread.sleep(forTimeInterval: 2)
         DialogManager.shared.close()
-        
-        // Remove daemon when device is fully provisioned (preflight exit 0)
-        if success {
-            CleanupManager.shared.removeLaunchDaemon(identifier: BootstrapMateConstants.daemonIdentifier)
-            Logger.info("Removed LaunchDaemon \\(BootstrapMateConstants.daemonIdentifier) - device fully provisioned")            
-            // Clean cache if retainCache is false (default behavior)
-            if !ConfigManager.shared.config.retainCache {
-                CleanupManager.shared.cleanCache()
-            } else {
-                Logger.debug("Retaining cache as configured (--retain-cache enabled)")
-            }        }
-        
+        registerCleanupTasks()
         Logger.writeSessionSummary()
     }
+}
+
+// MARK: - Cleanup Registration
+
+public func registerCleanupTasks() {
+    // The LaunchDaemon is already installed via the package and loaded by postinstall.
+    // We don't need to re-register it here - that was causing the wrong plist to be created.
+    // The daemon with NetworkState keepalive will restart us when needed.
+    
+    Logger.info("Session complete - LaunchDaemon \(BootstrapMateConstants.daemonIdentifier) will handle future runs")
 }
 
