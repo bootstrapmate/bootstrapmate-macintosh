@@ -1,0 +1,95 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: Build & Test
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_16.2.app
+
+      - name: Show Swift version
+        run: swift --version
+
+      - name: Resolve dependencies
+        run: swift package resolve
+
+      - name: Build (debug)
+        run: swift build
+
+      - name: Run tests
+        run: swift test
+
+      - name: Build (release, universal)
+        run: swift build -c release --arch arm64 --arch x86_64
+
+      - name: Verify binary
+        run: |
+          BINARY=".build/apple/Products/Release/bootstrapmate"
+          file "$BINARY"
+          "$BINARY" --version || true
+
+  package-dry-run:
+    name: Package (dry run)
+    needs: build-and-test
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_16.2.app
+
+      - name: Build release binary
+        run: swift build -c release --arch arm64 --arch x86_64
+
+      - name: Assemble package structure
+        run: |
+          VERSION=$(date '+%Y.%m.%d.%H%M')
+          BUILD_DIR=build
+          PKG_ROOT=$BUILD_DIR/pkg-root
+          PACKAGING_DIR=packaging
+          APP_PATH="$PKG_ROOT/Applications/Utilities/BootstrapMate.app"
+
+          # Create app bundle
+          mkdir -p "$APP_PATH/Contents/MacOS"
+          mkdir -p "$APP_PATH/Contents/Resources"
+          cp .build/apple/Products/Release/bootstrapmate "$APP_PATH/Contents/MacOS/installapplications"
+          chmod 755 "$APP_PATH/Contents/MacOS/installapplications"
+          sed "s/{{VERSION}}/$VERSION/g" "$PACKAGING_DIR/resources/Info.plist.template" > "$APP_PATH/Contents/Info.plist"
+
+          # Copy LaunchDaemon and scripts
+          mkdir -p "$PKG_ROOT/Library/LaunchDaemons"
+          mkdir -p "$BUILD_DIR/scripts"
+          cp "$PACKAGING_DIR/LaunchDaemons/com.github.bootstrapmate.plist" "$PKG_ROOT/Library/LaunchDaemons/"
+          cp "$PACKAGING_DIR/scripts/postinstall" "$BUILD_DIR/scripts/"
+          chmod +x "$BUILD_DIR/scripts/postinstall"
+
+          # Create symlink placeholder
+          mkdir -p "$PKG_ROOT/usr/local/bootstrapmate"
+
+          echo "Package structure assembled for version $VERSION"
+          find "$BUILD_DIR" -type f | head -20
+
+      - name: Build unsigned package
+        run: |
+          VERSION=$(date '+%Y.%m.%d.%H%M')
+          pkgbuild \
+            --root build/pkg-root \
+            --identifier com.github.bootstrapmate \
+            --version "$VERSION" \
+            --scripts build/scripts \
+            "build/BootstrapMate-${VERSION}.pkg"
+          echo "Package built successfully"
+          ls -lh build/*.pkg
