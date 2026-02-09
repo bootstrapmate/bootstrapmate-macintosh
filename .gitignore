@@ -9,11 +9,11 @@
 .build/
 .swiftpm/
 
-# Custom build/packaging output directory
+# Entire build directory (disposable artifacts - source files are in packaging/)
 build/
 
 # Generated installer packages (if built outside build/ directory)
-*.pkg
+/*.pkg
 
 # Code signing artifacts
 *.signed
