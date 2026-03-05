@@ -8,6 +8,10 @@
     <string>com.github.bootstrapmate</string>
     <key>CFBundleName</key>
     <string>BootstrapMate</string>
+    <key>CFBundleIconFile</key>
+    <string>BootstrapMate</string>
+    <key>CFBundleIconName</key>
+    <string>BootstrapMate</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
