@@ -8,8 +8,8 @@
 -include .env
 export
 
-# Version from environment or generate timestamp
-VERSION ?= $(shell date '+%Y.%m.%d.%H%M')
+# Version from environment or generate timestamp (evaluated once at parse time)
+VERSION := $(or $(VERSION),$(shell date '+%Y.%m.%d.%H%M'))
 
 # Paths
 BUILD_DIR = build
@@ -21,6 +21,11 @@ BINARY_INSTALL_PATH = usr/local/bootstrapmate
 APP_BUNDLE_PATH = Applications/Utilities/BootstrapMate.app
 APP_MACOS_DIR = $(PKG_ROOT)/$(APP_BUNDLE_PATH)/Contents/MacOS
 APP_RESOURCES_DIR = $(PKG_ROOT)/$(APP_BUNDLE_PATH)/Contents/Resources
+
+# Icon
+ICON_DIR = resources/BootstrapMate.icon
+ICON_NAME = BootstrapMate
+ACTOOL_OUT = $(BUILD_DIR)/actool-out
 
 # Swift Build Configuration
 SWIFT_BUILD_DIR = .build/apple/Products/Release
@@ -44,7 +49,7 @@ YELLOW = \033[1;33m
 BLUE = \033[0;34m
 NC = \033[0m
 
-.PHONY: all build clean swift-build copy-binary create-app-bundle sign-app build-pkg sign-pkg notarize-pkg verify help check-signing-config
+.PHONY: all build clean swift-build copy-binary create-app-bundle compile-icon sign-app build-pkg sign-pkg notarize-pkg verify help check-signing-config
 
 all: build
 
@@ -127,12 +132,32 @@ copy-binary: swift-build
 	@touch $(PKG_ROOT)/$(BINARY_INSTALL_PATH)/.placeholder
 	@echo "$(GREEN)✓ Binary signed and copied to app bundle$(NC)"
 
-create-app-bundle: copy-binary
-	@echo "$(BLUE)Creating app bundle Info.plist...$(NC)"
+compile-icon:
+	@echo "$(BLUE)Compiling icon bundle with actool...$(NC)"
+	@mkdir -p $(ACTOOL_OUT)
+	@xcrun actool \
+		--compile $(ACTOOL_OUT) \
+		--platform macosx \
+		--minimum-deployment-target 13.0 \
+		--app-icon $(ICON_NAME) \
+		--output-partial-info-plist $(ACTOOL_OUT)/partial-info.plist \
+		--warnings --errors \
+		$(ICON_DIR) > /dev/null
+	@echo "$(GREEN)✓ Icon compiled: Assets.car + $(ICON_NAME).icns$(NC)"
+
+create-app-bundle: copy-binary compile-icon
+	@echo "$(BLUE)Creating app bundle...$(NC)"
 	@mkdir -p $(APP_RESOURCES_DIR)
+	@rm -rf $(APP_RESOURCES_DIR)/*
 	
 	# Copy Info.plist template and substitute version
 	@sed 's/{{VERSION}}/$(VERSION)/g' $(PACKAGING_DIR)/resources/Info.plist.template > $(PKG_ROOT)/$(APP_BUNDLE_PATH)/Contents/Info.plist
+	
+	# Copy compiled Assets.car (contains Liquid Glass icon for macOS 26+)
+	@cp $(ACTOOL_OUT)/Assets.car $(APP_RESOURCES_DIR)/Assets.car
+	
+	# Copy .icns fallback (macOS 13–25) - composited by actool, not a raw layer PNG
+	@cp $(ACTOOL_OUT)/$(ICON_NAME).icns $(APP_RESOURCES_DIR)/$(ICON_NAME).icns
 	
 	@echo "$(GREEN)✓ App bundle created$(NC)"
 
