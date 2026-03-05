@@ -1,0 +1,247 @@
+{
+  "color-space-for-untagged-svg-colors" : "display-p3",
+  "fill" : "automatic",
+  "groups" : [
+    {
+      "layers" : [
+        {
+          "image-name" : "Image Layer 14.png",
+          "name" : "Pkg front",
+          "position" : {
+            "scale" : 1,
+            "translation-in-points" : [
+              -16.9375,
+              232.375
+            ]
+          }
+        },
+        {
+          "image-name" : "Image Layer 16.png",
+          "name" : "Image Layer 16",
+          "position-specializations" : [
+            {
+              "idiom" : "square",
+              "value" : {
+                "scale" : 0.25,
+                "translation-in-points" : [
+                  249.31093750000014,
+                  -67.3515625
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "image-name" : "Image Layer 17.png",
+          "name" : "Image Layer 17",
+          "position-specializations" : [
+            {
+              "value" : {
+                "scale" : 1,
+                "translation-in-points" : [
+                  0,
+                  115.95000000000005
+                ]
+              }
+            },
+            {
+              "idiom" : "square",
+              "value" : {
+                "scale" : 0.1,
+                "translation-in-points" : [
+                  10.365000000000123,
+                  4.9249999999999545
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "hidden" : true,
+          "image-name" : "Image Layer 8.png",
+          "name" : "Image Layer 8",
+          "position-specializations" : [
+            {
+              "idiom" : "square",
+              "value" : {
+                "scale" : 0.35,
+                "translation-in-points" : [
+                  220.78593750000016,
+                  -249.59531250000003
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "hidden" : false,
+          "image-name" : "Image Layer 6.png",
+          "name" : "Image Layer 6",
+          "position-specializations" : [
+            {
+              "idiom" : "square",
+              "value" : {
+                "scale" : 0.4,
+                "translation-in-points" : [
+                  -187.67656249999993,
+                  36.062500000000114
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "image-name" : "Image Layer 12.png",
+          "name" : "Image Layer 12",
+          "position-specializations" : [
+            {
+              "idiom" : "square",
+              "value" : {
+                "scale" : 0.28,
+                "translation-in-points" : [
+                  -113.57499999999993,
+                  -213.62500000000006
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "hidden" : false,
+          "image-name" : "Image Layer 5.png",
+          "name" : "Image Layer 5",
+          "position-specializations" : [
+            {
+              "idiom" : "square",
+              "value" : {
+                "scale" : 0.35,
+                "translation-in-points" : [
+                  99.78750000000002,
+                  -207.8703125
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "hidden" : false,
+          "image-name" : "Image Layer 9.png",
+          "name" : "Image Layer 9",
+          "position-specializations" : [
+            {
+              "idiom" : "square",
+              "value" : {
+                "scale" : 0.35,
+                "translation-in-points" : [
+                  -356.46562499999993,
+                  -77.82656250000002
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "hidden" : true,
+          "image-name" : "Image Layer 2.png",
+          "name" : "Image Layer 2",
+          "position-specializations" : [
+            {
+              "value" : {
+                "scale" : 1,
+                "translation-in-points" : [
+                  166.1328125,
+                  -70.453125
+                ]
+              }
+            },
+            {
+              "idiom" : "square",
+              "value" : {
+                "scale" : 0.4,
+                "translation-in-points" : [
+                  300.75,
+                  -70.7265625
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "hidden" : true,
+          "image-name" : "Image Layer 10.png",
+          "name" : "Image Layer 10",
+          "position-specializations" : [
+            {
+              "idiom" : "square",
+              "value" : {
+                "scale" : 0.35,
+                "translation-in-points" : [
+                  366.2109375000001,
+                  -47.72500000000002
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "hidden" : true,
+          "image-name" : "Image Layer 11.png",
+          "name" : "Image Layer 11",
+          "position-specializations" : [
+            {
+              "idiom" : "square",
+              "value" : {
+                "scale" : 0.35,
+                "translation-in-points" : [
+                  -113.39999999999986,
+                  29.028125000000045
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "hidden" : true,
+          "image-name" : "Image Layer 7.png",
+          "name" : "Image Layer 7",
+          "position-specializations" : [
+            {
+              "idiom" : "square",
+              "value" : {
+                "scale" : 0.35,
+                "translation-in-points" : [
+                  279.8109374999999,
+                  -9.774999999999977
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "image-name" : "Image Layer copy 2.png",
+          "name" : "Pkg back"
+        }
+      ],
+      "position" : {
+        "scale" : 1,
+        "translation-in-points" : [
+          14.5546875,
+          -38.0625
+        ]
+      },
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.5
+      },
+      "translucency" : {
+        "enabled" : true,
+        "value" : 0.5
+      }
+    }
+  ],
+  "supported-platforms" : {
+    "squares" : [
+      "macOS"
+    ]
+  }
+}
