@@ -5,6 +5,7 @@ public enum BootstrapMateConstants {
     public static let executablePath = "/Applications/Utilities/BootstrapMate.app/Contents/MacOS/installapplications"
     public static let defaultRetryCount = 3
     public static let defaultRetryDelay = 5
+    public static let cacheDirectory = "/Library/Managed Bootstrap/cache"
     
     // Version in YYYY.MM.DD.HHMM format - generated at compile time
     public static let version: String = {
