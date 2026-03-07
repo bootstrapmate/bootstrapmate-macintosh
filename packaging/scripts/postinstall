@@ -69,6 +69,30 @@ if [[ -x "${BINARY_PATH}" ]]; then
     fi
     
     log "BootstrapMate installed successfully"
+
+    # Register the XPC privileged helper daemon via SMAppService
+    # The helper plist is embedded at Contents/Library/LaunchDaemons/
+    # inside the app bundle. SMAppService reads it from there on macOS 13+.
+    HELPER_LD_PATH="${APP_PATH}/Contents/Library/LaunchDaemons/com.github.bootstrapmate.helper.plist"
+    HELPER_SYSTEM_PLIST="/Library/LaunchDaemons/com.github.bootstrapmate.helper.plist"
+    HELPER_BINARY="${APP_PATH}/Contents/MacOS/BootstrapMateHelper"
+    if [[ -f "${HELPER_LD_PATH}" ]]; then
+        log "Helper LaunchDaemon plist found at ${HELPER_LD_PATH}"
+        # Copy plist and convert BundleProgram to ProgramArguments for launchd
+        cp "${HELPER_LD_PATH}" "${HELPER_SYSTEM_PLIST}"
+        # Remove the BundleProgram key (SMAppService-only) and add ProgramArguments
+        /usr/libexec/PlistBuddy -c "Delete :BundleProgram" "${HELPER_SYSTEM_PLIST}" 2>/dev/null || true
+        /usr/libexec/PlistBuddy -c "Add :ProgramArguments array" "${HELPER_SYSTEM_PLIST}" 2>/dev/null || true
+        /usr/libexec/PlistBuddy -c "Add :ProgramArguments:0 string ${HELPER_BINARY}" "${HELPER_SYSTEM_PLIST}" 2>/dev/null || true
+        chmod 644 "${HELPER_SYSTEM_PLIST}"
+        chown root:wheel "${HELPER_SYSTEM_PLIST}"
+        # Unload if previously loaded, then bootstrap
+        /bin/launchctl bootout system/com.github.bootstrapmate.helper 2>/dev/null || true
+        /bin/launchctl bootstrap system "${HELPER_SYSTEM_PLIST}" 2>&1 | tee -a /tmp/bootstrapmate-postinstall.log || log "helper launchctl bootstrap returned non-zero (may already be loaded)"
+        log "Helper daemon registration attempted"
+    else
+        log "WARNING: Helper LaunchDaemon plist not found: ${HELPER_LD_PATH}"
+    fi
 else
     log "ERROR: BootstrapMate binary not found at ${BINARY_PATH}"
     exit 1
