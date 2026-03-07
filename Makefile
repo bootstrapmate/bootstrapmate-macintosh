@@ -11,16 +11,26 @@ export
 # Version from environment or generate timestamp (evaluated once at parse time)
 VERSION := $(or $(VERSION),$(shell date '+%Y.%m.%d.%H%M'))
 
+# Split VERSION into marketing version (date) and build number (time) for macOS About box.
+# VERSION=2026.03.07.1012 → MARKETING_VERSION=2026.03.07, BUILD_NUMBER=1012
+# This prevents macOS from showing "2026.03.07.1012 (2026.03.07.1012)" and instead
+# displays "2026.03.07 (1012)". The full VERSION is still used for the CLI and pkg.
+MARKETING_VERSION := $(shell echo $(VERSION) | sed 's/\.[^.]*$$//')
+BUILD_NUMBER := $(shell echo $(VERSION) | sed 's/.*\.//')
+
 # Paths
 BUILD_DIR = build
 PKG_ROOT = $(BUILD_DIR)/pkg-root
 PACKAGING_DIR = packaging
 SCRIPTS_DIR = $(BUILD_DIR)/scripts
 BINARY_NAME = installapplications
+GUI_BINARY_NAME = BootstrapMateGUI
+HELPER_BINARY_NAME = BootstrapMateHelper
 BINARY_INSTALL_PATH = usr/local/bootstrapmate
 APP_BUNDLE_PATH = Applications/Utilities/BootstrapMate.app
 APP_MACOS_DIR = $(PKG_ROOT)/$(APP_BUNDLE_PATH)/Contents/MacOS
 APP_RESOURCES_DIR = $(PKG_ROOT)/$(APP_BUNDLE_PATH)/Contents/Resources
+APP_HELPER_LD_DIR = $(PKG_ROOT)/$(APP_BUNDLE_PATH)/Contents/Library/LaunchDaemons
 
 # Icon
 ICON_DIR = resources/BootstrapMate.icon
@@ -30,6 +40,8 @@ ACTOOL_OUT = $(BUILD_DIR)/actool-out
 # Swift Build Configuration
 SWIFT_BUILD_DIR = .build/apple/Products/Release
 SWIFT_BINARY = $(SWIFT_BUILD_DIR)/bootstrapmate
+SWIFT_GUI_BINARY = $(SWIFT_BUILD_DIR)/BootstrapMateApp
+SWIFT_HELPER_BINARY = $(SWIFT_BUILD_DIR)/BootstrapMateHelper
 
 # Package Configuration
 PKG_ID = com.github.bootstrapmate
@@ -92,12 +104,12 @@ check-signing-config:
 		echo "$(YELLOW)Please create a .env file (see .env.example) or set environment variables$(NC)"; \
 		exit 1; \
 	fi
-	@if [ -z "$(NOTARIZATION_PROFILE)" ]; then \
-		echo "$(RED)✗ Error: NOTARIZATION_PROFILE not set$(NC)"; \
+	@if [ -z "$(NOTARIZATION_PROFILE)" ] && [ -z "$(NOTARIZATION_APPLE_ID)" ]; then \
+		echo "$(RED)✗ Error: NOTARIZATION_PROFILE or NOTARIZATION_APPLE_ID not set$(NC)"; \
 		echo "$(YELLOW)Please create a .env file (see .env.example) or set environment variables$(NC)"; \
 		exit 1; \
 	fi
-	@if [ -z "$(NOTARIZATION_TEAM_ID)" ]; then \
+	@if [ -z "$(NOTARIZATION_TEAM_ID)" ] && [ -z "$(NOTARIZATION_PROFILE)" ]; then \
 		echo "$(RED)✗ Error: NOTARIZATION_TEAM_ID not set$(NC)"; \
 		echo "$(YELLOW)Please create a .env file (see .env.example) or set environment variables$(NC)"; \
 		exit 1; \
@@ -113,24 +125,42 @@ swift-build:
 	@echo "$(GREEN)✓ Swift build complete$(NC)"
 
 copy-binary: swift-build
-	@echo "$(BLUE)Signing and copying binary to app bundle...$(NC)"
+	@echo "$(BLUE)Signing and copying binaries to app bundle...$(NC)"
 	@mkdir -p $(APP_MACOS_DIR)
 	
-	# Sign the binary with hardened runtime before packaging
+	# Sign the CLI binary with hardened runtime before packaging
 	@codesign --force --sign "$(SIGNING_IDENTITY_APP)" \
 		--options runtime \
 		--timestamp \
 		--identifier com.github.bootstrapmate.installapplications \
 		$(SWIFT_BINARY)
 	
-	# Copy binary to app bundle MacOS directory
+	# Sign the GUI binary
+	@codesign --force --sign "$(SIGNING_IDENTITY_APP)" \
+		--options runtime \
+		--timestamp \
+		--identifier com.github.bootstrapmate.gui \
+		$(SWIFT_GUI_BINARY)
+	
+	# Sign the Helper binary
+	@codesign --force --sign "$(SIGNING_IDENTITY_APP)" \
+		--options runtime \
+		--timestamp \
+		--identifier com.github.bootstrapmate.helper \
+		$(SWIFT_HELPER_BINARY)
+	
+	# Copy all binaries to app bundle MacOS directory
 	@cp $(SWIFT_BINARY) $(APP_MACOS_DIR)/$(BINARY_NAME)
 	@chmod 755 $(APP_MACOS_DIR)/$(BINARY_NAME)
+	@cp $(SWIFT_GUI_BINARY) $(APP_MACOS_DIR)/$(GUI_BINARY_NAME)
+	@chmod 755 $(APP_MACOS_DIR)/$(GUI_BINARY_NAME)
+	@cp $(SWIFT_HELPER_BINARY) $(APP_MACOS_DIR)/$(HELPER_BINARY_NAME)
+	@chmod 755 $(APP_MACOS_DIR)/$(HELPER_BINARY_NAME)
 	
 	# Create placeholder for symlink directory
 	@mkdir -p $(PKG_ROOT)/$(BINARY_INSTALL_PATH)
 	@touch $(PKG_ROOT)/$(BINARY_INSTALL_PATH)/.placeholder
-	@echo "$(GREEN)✓ Binary signed and copied to app bundle$(NC)"
+	@echo "$(GREEN)✓ Binaries signed and copied to app bundle$(NC)"
 
 compile-icon:
 	@echo "$(BLUE)Compiling icon bundle with actool...$(NC)"
@@ -150,8 +180,10 @@ create-app-bundle: copy-binary compile-icon
 	@mkdir -p $(APP_RESOURCES_DIR)
 	@rm -rf $(APP_RESOURCES_DIR)/*
 	
-	# Copy Info.plist template and substitute version
-	@sed 's/{{VERSION}}/$(VERSION)/g' $(PACKAGING_DIR)/resources/Info.plist.template > $(PKG_ROOT)/$(APP_BUNDLE_PATH)/Contents/Info.plist
+	# Copy Info.plist template and substitute version placeholders
+	@sed -e 's/{{MARKETING_VERSION}}/$(MARKETING_VERSION)/g' \
+	     -e 's/{{BUILD_NUMBER}}/$(BUILD_NUMBER)/g' \
+	     $(PACKAGING_DIR)/resources/Info.plist.template > $(PKG_ROOT)/$(APP_BUNDLE_PATH)/Contents/Info.plist
 	
 	# Copy compiled Assets.car (contains Liquid Glass icon for macOS 26+)
 	@cp $(ACTOOL_OUT)/Assets.car $(APP_RESOURCES_DIR)/Assets.car
@@ -162,13 +194,15 @@ create-app-bundle: copy-binary compile-icon
 	@echo "$(GREEN)✓ App bundle created$(NC)"
 
 create-launchdaemon: create-app-bundle
-	@echo "$(BLUE)Copying LaunchDaemon plist...$(NC)"
+	@echo "$(BLUE)Copying LaunchDaemon plists...$(NC)"
 	@mkdir -p $(PKG_ROOT)/Library/LaunchDaemons
 	@mkdir -p $(SCRIPTS_DIR)
+	@mkdir -p $(APP_HELPER_LD_DIR)
 	@cp $(PACKAGING_DIR)/LaunchDaemons/com.github.bootstrapmate.plist $(PKG_ROOT)/Library/LaunchDaemons/
+	@cp $(PACKAGING_DIR)/LaunchDaemons/com.github.bootstrapmate.helper.plist $(APP_HELPER_LD_DIR)/
 	@cp $(PACKAGING_DIR)/scripts/postinstall $(SCRIPTS_DIR)/
 	@chmod +x $(SCRIPTS_DIR)/postinstall
-	@echo "$(GREEN)✓ LaunchDaemon and scripts copied$(NC)"
+	@echo "$(GREEN)✓ LaunchDaemon plists and scripts copied$(NC)"
 
 sign-app: create-launchdaemon
 	@echo "$(BLUE)Signing app bundle...$(NC)"
@@ -182,8 +216,16 @@ sign-app: create-launchdaemon
 build-pkg: sign-app
 	@echo "$(BLUE)Building installer package...$(NC)"
 	@mkdir -p $(BUILD_DIR)
+	# Generate component plist and disable bundle relocation to prevent
+	# macOS installer from moving the app when upgrading from a different pkg ID.
+	# Disable version checking so the split version format (3-component marketing
+	# + build number) doesn't fail comparison against older 4-component versions.
+	@pkgbuild --analyze --root $(PKG_ROOT) $(BUILD_DIR)/component.plist
+	@/usr/libexec/PlistBuddy -c "Set :0:BundleIsRelocatable false" $(BUILD_DIR)/component.plist
+	@/usr/libexec/PlistBuddy -c "Set :0:BundleIsVersionChecked false" $(BUILD_DIR)/component.plist
 	@pkgbuild \
 		--root $(PKG_ROOT) \
+		--component-plist $(BUILD_DIR)/component.plist \
 		--identifier $(PKG_ID) \
 		--version $(VERSION) \
 		--scripts $(SCRIPTS_DIR) \
@@ -202,9 +244,20 @@ sign-pkg: build-pkg
 
 notarize-pkg: sign-pkg
 	@echo "$(BLUE)Notarizing package (this may take several minutes)...$(NC)"
-	@xcrun notarytool submit $(PKG_OUTPUT) \
-		--keychain-profile "$(NOTARIZATION_PROFILE)" \
-		--wait
+	@if [ -n "$(NOTARIZATION_PROFILE)" ]; then \
+		xcrun notarytool submit $(PKG_OUTPUT) \
+			--keychain-profile "$(NOTARIZATION_PROFILE)" \
+			--wait; \
+	elif [ -n "$(NOTARIZATION_APPLE_ID)" ] && [ -n "$(NOTARIZATION_PASSWORD)" ]; then \
+		xcrun notarytool submit $(PKG_OUTPUT) \
+			--apple-id "$(NOTARIZATION_APPLE_ID)" \
+			--password "$(NOTARIZATION_PASSWORD)" \
+			--team-id "$(NOTARIZATION_TEAM_ID)" \
+			--wait; \
+	else \
+		echo "$(RED)Error: Set NOTARIZATION_PROFILE or NOTARIZATION_APPLE_ID + NOTARIZATION_PASSWORD$(NC)"; \
+		exit 1; \
+	fi
 	@echo "$(BLUE)Stapling notarization ticket...$(NC)"
 	@xcrun stapler staple $(PKG_OUTPUT)
 	@echo "$(GREEN)✓ Package notarized and stapled$(NC)"
