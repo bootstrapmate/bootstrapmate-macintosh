@@ -23,6 +23,13 @@ public struct BootstrapMateConfig {
     public var customInstallPath: String?
     public var daemonIdentifier: String
     public var agentIdentifier: String
+    // Dialog / UI settings
+    public var enableDialog: Bool
+    public var dialogTitle: String
+    public var dialogMessage: String
+    public var dialogIcon: String?
+    public var blurScreen: Bool
+    public var networkTimeout: Int
     
     public init(
         jsonUrl: String? = nil,
@@ -35,7 +42,13 @@ public struct BootstrapMateConfig {
         verboseMode: Bool = false,
         customInstallPath: String? = nil,
         daemonIdentifier: String = BootstrapMateConstants.daemonIdentifier,
-        agentIdentifier: String = BootstrapMateConstants.daemonIdentifier
+        agentIdentifier: String = BootstrapMateConstants.daemonIdentifier,
+        enableDialog: Bool = true,
+        dialogTitle: String = "Setting up your Mac",
+        dialogMessage: String = "Please wait while we configure your device...",
+        dialogIcon: String? = nil,
+        blurScreen: Bool = false,
+        networkTimeout: Int = 120
     ) {
         self.jsonUrl = jsonUrl
         self.authorizationHeader = authorizationHeader
@@ -48,6 +61,12 @@ public struct BootstrapMateConfig {
         self.customInstallPath = customInstallPath
         self.daemonIdentifier = daemonIdentifier
         self.agentIdentifier = agentIdentifier
+        self.enableDialog = enableDialog
+        self.dialogTitle = dialogTitle
+        self.dialogMessage = dialogMessage
+        self.dialogIcon = dialogIcon
+        self.blurScreen = blurScreen
+        self.networkTimeout = networkTimeout
     }
 }
 
@@ -293,6 +312,16 @@ public final class ConfigManager {
             config.reboot = value
         }
         
+        // Check for dryRun
+        if let value = CFPreferencesCopyAppValue("dryRun" as CFString, cfDomain) as? Bool {
+            config.dryRun = value
+        }
+        
+        // Check for userscriptOnly
+        if let value = CFPreferencesCopyAppValue("userscriptOnly" as CFString, cfDomain) as? Bool {
+            config.userscriptOnly = value
+        }
+        
         // Check for install path
         let pathKeys = ["installPath", "InstallPath", "iapath"]
         for key in pathKeys {
@@ -316,6 +345,34 @@ public final class ConfigManager {
             config.agentIdentifier = value
         }
         
+        // Dialog / UI settings
+        if let value = CFPreferencesCopyAppValue("enableDialog" as CFString, cfDomain) as? Bool {
+            config.enableDialog = value
+        }
+        let titleKeys = ["dialogTitle", "DialogTitle"]
+        for key in titleKeys {
+            if let value = CFPreferencesCopyAppValue(key as CFString, cfDomain) as? String {
+                config.dialogTitle = value
+                break
+            }
+        }
+        let messageKeys = ["dialogMessage", "DialogMessage"]
+        for key in messageKeys {
+            if let value = CFPreferencesCopyAppValue(key as CFString, cfDomain) as? String {
+                config.dialogMessage = value
+                break
+            }
+        }
+        if let value = CFPreferencesCopyAppValue("dialogIcon" as CFString, cfDomain) as? String {
+            config.dialogIcon = value
+        }
+        if let value = CFPreferencesCopyAppValue("blurScreen" as CFString, cfDomain) as? Bool {
+            config.blurScreen = value
+        }
+        if let value = CFPreferencesCopyAppValue("networkTimeout" as CFString, cfDomain) as? Int {
+            config.networkTimeout = value
+        }
+
         return config.jsonUrl != nil
     }
     
@@ -353,6 +410,12 @@ public final class ConfigManager {
         }
     }
     
+    /// Reload all preferences from CFPreferences (call after GUI saves via XPC).
+    public func reloadPreferences() {
+        config = BootstrapMateConfig()
+        loadManagedPreferences()
+    }
+
     /// Debug: Print current configuration
     public func printCurrentConfig() {
         Logger.debug("Current Configuration:")
@@ -365,6 +428,12 @@ public final class ConfigManager {
         Logger.debug("  verboseMode: \(config.verboseMode)")
         Logger.debug("  installPath: \(getInstallPath())")
         Logger.debug("  daemonIdentifier: \(config.daemonIdentifier)")
+        Logger.debug("  enableDialog: \(config.enableDialog)")
+        Logger.debug("  dialogTitle: \(config.dialogTitle)")
+        Logger.debug("  dialogMessage: \(config.dialogMessage)")
+        Logger.debug("  dialogIcon: \(config.dialogIcon ?? "default")")
+        Logger.debug("  blurScreen: \(config.blurScreen)")
+        Logger.debug("  networkTimeout: \(config.networkTimeout)")
     }
 }
 
