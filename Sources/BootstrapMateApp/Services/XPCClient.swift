@@ -237,7 +237,7 @@ extension XPCClient: HelperXPCClientProtocol {
         if line.contains("[ERROR]") || line.contains("✗") { return .error }
         if line.contains("[WARNING]") || line.contains("⚠") { return .warning }
         if line.contains("[SUCCESS]") || line.contains("✓") { return .success }
-        if line.contains("[DEBUG]") { return .debug }
+        if line.contains("[DEBUG]") || line.contains("[DBG]") { return .debug }
         return .info
     }
 }
