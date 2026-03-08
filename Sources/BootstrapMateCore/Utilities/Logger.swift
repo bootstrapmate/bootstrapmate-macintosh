@@ -257,10 +257,10 @@ public final class Logger {
     
     private func getDisplayFormat(level: LogLevel) -> (String, String?) {
         switch level {
-        case .debug: return ("[DBG]", "gray")
+        case .debug: return ("[~]", "gray")
         case .info: return ("[i]", nil)
         case .warning: return ("[!]", "yellow")
-        case .error: return ("[X]", "red")
+        case .error: return ("[x]", "red")
         case .success: return ("[+]", "green")
         }
     }

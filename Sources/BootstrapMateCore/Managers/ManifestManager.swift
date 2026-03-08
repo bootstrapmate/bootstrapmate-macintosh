@@ -70,8 +70,11 @@ public final class ManifestManager {
             defer { semaphore.signal() }
             if let data = data {
                 do {
-                    // Attempt to decode the manifest
-                    let decoded = try JSONDecoder().decode(BootstrapManifest.self, from: data)
+                    let decoded = try ManifestDecoder.decode(
+                        BootstrapManifest.self,
+                        from: data,
+                        urlHint: urlString
+                    )
                     resultHolder.manifest = decoded
                     resultHolder.success = true
                 } catch {

@@ -226,7 +226,11 @@ public final class ConfigManager {
         
         if let data = holder.data {
             do {
-                let decoded = try JSONDecoder().decode(BootstrapConfig.self, from: data)
+                let decoded = try ManifestDecoder.decode(
+                    BootstrapConfig.self,
+                    from: data,
+                    urlHint: urlString
+                )
                 self.externalConfig = decoded
                 Logger.success("External config loaded successfully")
                 return true
