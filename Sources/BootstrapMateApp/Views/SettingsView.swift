@@ -91,12 +91,14 @@ struct SettingsView: View {
             }
             .buttonStyle(.glassProminent)
             .tint(.accentColor)
+            .keyboardShortcut(.return, modifiers: .command)
             .disabled(xpcClient.isRunning)
         } else {
             Button("Save Settings") {
                 viewModel.save(using: xpcClient)
             }
             .buttonStyle(.borderedProminent)
+            .keyboardShortcut(.return, modifiers: .command)
             .disabled(xpcClient.isRunning)
         }
     }
