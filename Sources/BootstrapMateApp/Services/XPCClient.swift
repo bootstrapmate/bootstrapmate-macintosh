@@ -234,10 +234,10 @@ extension XPCClient: HelperXPCClientProtocol {
     }
 
     private static nonisolated func parseLogLevel(_ line: String) -> OutputLine.LogLevel {
-        if line.contains("[ERROR]") || line.contains("✗") { return .error }
-        if line.contains("[WARNING]") || line.contains("⚠") { return .warning }
-        if line.contains("[SUCCESS]") || line.contains("✓") { return .success }
-        if line.contains("[DEBUG]") || line.contains("[DBG]") { return .debug }
+        if line.contains("[x]") || line.contains("[ERROR]") { return .error }
+        if line.contains("[!]") || line.contains("[WARNING]") { return .warning }
+        if line.contains("[+]") || line.contains("[SUCCESS]") || line.contains("✓") { return .success }
+        if line.contains("[~]") || line.contains("[DEBUG]") || line.contains("[DBG]") { return .debug }
         return .info
     }
 }
