@@ -81,7 +81,7 @@ help:
 	@echo "  clean          - Remove build artifacts"
 	@echo ""
 	@echo "Configuration:"
-	@echo "  Create a .env file (see .env.example) with your signing credentials"
+	@echo "  Create a .env file (see examples/.env.example) with your signing credentials"
 	@echo "  Or set environment variables directly when running make"
 	@echo ""
 	@echo "Required Variables (set in .env or environment):"
@@ -96,22 +96,22 @@ help:
 check-signing-config:
 	@if [ -z "$(SIGNING_IDENTITY_APP)" ]; then \
 		echo "$(RED)✗ Error: SIGNING_IDENTITY_APP not set$(NC)"; \
-		echo "$(YELLOW)Please create a .env file (see .env.example) or set environment variables$(NC)"; \
+		echo "$(YELLOW)Please create a .env file (see examples/.env.example) or set environment variables$(NC)"; \
 		exit 1; \
 	fi
 	@if [ -z "$(SIGNING_IDENTITY_PKG)" ]; then \
 		echo "$(RED)✗ Error: SIGNING_IDENTITY_PKG not set$(NC)"; \
-		echo "$(YELLOW)Please create a .env file (see .env.example) or set environment variables$(NC)"; \
+		echo "$(YELLOW)Please create a .env file (see examples/.env.example) or set environment variables$(NC)"; \
 		exit 1; \
 	fi
 	@if [ -z "$(NOTARIZATION_PROFILE)" ] && [ -z "$(NOTARIZATION_APPLE_ID)" ]; then \
 		echo "$(RED)✗ Error: NOTARIZATION_PROFILE or NOTARIZATION_APPLE_ID not set$(NC)"; \
-		echo "$(YELLOW)Please create a .env file (see .env.example) or set environment variables$(NC)"; \
+		echo "$(YELLOW)Please create a .env file (see examples/.env.example) or set environment variables$(NC)"; \
 		exit 1; \
 	fi
 	@if [ -z "$(NOTARIZATION_TEAM_ID)" ] && [ -z "$(NOTARIZATION_PROFILE)" ]; then \
 		echo "$(RED)✗ Error: NOTARIZATION_TEAM_ID not set$(NC)"; \
-		echo "$(YELLOW)Please create a .env file (see .env.example) or set environment variables$(NC)"; \
+		echo "$(YELLOW)Please create a .env file (see examples/.env.example) or set environment variables$(NC)"; \
 		exit 1; \
 	fi
 	@echo "$(GREEN)✓ Signing configuration validated$(NC)"

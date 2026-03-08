@@ -1,0 +1,87 @@
+# BootstrapMate Manifest — YAML format
+#
+# Sections run in order: preflight → setupassistant → userland
+#
+# All supported fields per item:
+#   file            (required) Absolute destination path on the managed device
+#   hash            (required) SHA-256 hex digest of the file — used to validate
+#                   downloads and skip re-downloads when the file is already current
+#   url             (required) Download URL for the file
+#   name            (optional) Human-readable label shown in logs and UI
+#   type            (required) One of: rootscript | package | userscript
+#   packageid       (optional) Bundle identifier for packages — used for receipt checks
+#   version         (optional) Minimum required version string for packages
+#   retries         (optional) Number of download/install retry attempts (default: 3)
+#   retrywait       (optional) Seconds to wait between retries (default: 10)
+#   followRedirects (optional) Follow HTTP redirects for this item (default: false)
+#   skipIf          (optional) Skip this item on a given architecture: arm64 | x86_64
+#   donotwait       (optional) Do not wait for this item to finish before continuing
+
+# ---------------------------------------------------------------------------
+# preflight — runs as root before Setup Assistant; use for device state checks.
+# Exit 0 = device already configured, skip bootstrap.
+# Exit 1 = continue with bootstrap.
+# ---------------------------------------------------------------------------
+preflight:
+  - file: /Library/Application Support/BootstrapMate/preflight.sh
+    hash: e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+    url: https://example.com/bootstrap/scripts/preflight.sh
+    name: Preflight Check
+    type: rootscript
+    retries: 3
+    retrywait: 5
+
+# ---------------------------------------------------------------------------
+# setupassistant — runs as root during Setup Assistant; packages + root scripts.
+# ---------------------------------------------------------------------------
+setupassistant:
+  - file: /Library/Application Support/BootstrapMate/munkitools.pkg
+    hash: e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+    url: https://example.com/bootstrap/packages/munkitools-6.0.0.pkg
+    name: Munki Tools
+    type: package
+    packageid: com.googlecode.munki.core
+    version: "6.0.0"
+    retries: 3
+    retrywait: 10
+    followRedirects: true
+
+  - file: /Library/Application Support/BootstrapMate/munkitools-admin.pkg
+    hash: e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+    url: https://example.com/bootstrap/packages/munkitools-admin-6.0.0.pkg
+    name: Munki Admin Tools
+    type: package
+    packageid: com.googlecode.munki.admin
+    version: "6.0.0"
+    retries: 3
+    retrywait: 10
+    skipIf: arm64   # skip on Apple Silicon — Intel-only tool
+
+  - file: /Library/Application Support/BootstrapMate/configure-munki.sh
+    hash: e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+    url: https://example.com/bootstrap/scripts/configure-munki.sh
+    name: Configure Munki
+    type: rootscript
+    retries: 2
+    retrywait: 5
+
+# ---------------------------------------------------------------------------
+# userland — runs in the user session after Setup Assistant completes.
+# ---------------------------------------------------------------------------
+userland:
+  - file: /Library/Application Support/BootstrapMate/dock-setup.sh
+    hash: e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+    url: https://example.com/bootstrap/scripts/dock-setup.sh
+    name: Configure Dock
+    type: userscript
+    retries: 2
+    retrywait: 5
+
+  - file: /Library/Application Support/BootstrapMate/user-defaults.sh
+    hash: e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+    url: https://example.com/bootstrap/scripts/user-defaults.sh
+    name: Apply User Defaults
+    type: userscript
+    retries: 2
+    retrywait: 5
+    donotwait: true   # fire-and-forget; continue without waiting for completion
