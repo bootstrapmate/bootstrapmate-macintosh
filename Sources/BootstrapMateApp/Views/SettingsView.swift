@@ -29,19 +29,15 @@ struct SettingsView: View {
 
                 Divider()
 
-                // Settings in 2 columns
+                // Settings in 2x2 grid
                 HStack(alignment: .top, spacing: 20) {
-                    VStack(spacing: 12) {
-                        connectionSection
-                        dialogSection
-                    }
-                    .frame(maxWidth: .infinity)
+                    connectionSection
+                    behaviorSection
+                }
 
-                    VStack(spacing: 12) {
-                        behaviorSection
-                        advancedSection
-                    }
-                    .frame(maxWidth: .infinity)
+                HStack(alignment: .top, spacing: 20) {
+                    dialogSection
+                    advancedSection
                 }
 
                 // Save row
@@ -129,7 +125,7 @@ struct SettingsView: View {
 
     @ViewBuilder
     private var connectionSection: some View {
-        GroupBox("Connection") {
+        GroupBox {
             VStack(alignment: .leading, spacing: 12) {
                 settingRow("jsonUrl", label: "Manifest URL") {
                     TextField("https://example.com/manifest.json", text: $viewModel.jsonUrl)
@@ -144,80 +140,89 @@ struct SettingsView: View {
                     .textFieldStyle(.roundedBorder)
                 }
 
-                settingRow("followRedirects", label: "Follow Redirects") {
+                settingRow("followRedirects") {
                     Toggle("Follow HTTP redirects", isOn: $viewModel.followRedirects)
                 }
             }
             .padding(.vertical, 8)
+        } label: {
+            Label("Connection", systemImage: "network")
+                .font(.headline)
         }
     }
 
     @ViewBuilder
     private var behaviorSection: some View {
-        GroupBox("Behavior") {
+        GroupBox {
             VStack(alignment: .leading, spacing: 12) {
-                settingRow("reboot", label: "Reboot") {
+                settingRow("reboot") {
                     Toggle("Reboot after completion", isOn: $viewModel.reboot)
                 }
 
-                settingRow("silentMode", label: "Silent Mode") {
+                settingRow("silentMode") {
                     Toggle("Suppress console output", isOn: $viewModel.silentMode)
                 }
 
-                settingRow("verboseMode", label: "Verbose Mode") {
+                settingRow("verboseMode") {
                     Toggle("Enable verbose logging", isOn: $viewModel.verboseMode)
                 }
 
-                settingRow("dryRun", label: "Dry Run") {
+                settingRow("dryRun") {
                     Toggle("No installer actions performed", isOn: $viewModel.dryRun)
                 }
 
-                settingRow("userscriptOnly", label: "Userscript Only") {
+                settingRow("userscriptOnly") {
                     Toggle("Only run userland scripts", isOn: $viewModel.userscriptOnly)
                 }
             }
             .padding(.vertical, 8)
             .frame(maxWidth: .infinity, alignment: .leading)
+        } label: {
+            Label("Behavior", systemImage: "gearshape")
+                .font(.headline)
         }
     }
 
     @ViewBuilder
     private var dialogSection: some View {
-        GroupBox("Dialog") {
+        GroupBox {
             VStack(alignment: .leading, spacing: 12) {
-                settingRow("enableDialog", label: "Enable Dialog") {
+                settingRow("enableDialog") {
                     Toggle("Show SwiftDialog UI during run", isOn: $viewModel.enableDialog)
                 }
 
-                settingRow("dialogTitle", label: "Dialog Title") {
+                settingRow("dialogTitle", label: "Title") {
                     TextField("Setting up your Mac", text: $viewModel.dialogTitle)
                         .textFieldStyle(.roundedBorder)
                 }
 
-                settingRow("dialogMessage", label: "Dialog Message") {
+                settingRow("dialogMessage", label: "Message") {
                     TextField("Please wait while we configure your device...", text: $viewModel.dialogMessage)
                         .textFieldStyle(.roundedBorder)
                 }
 
-                settingRow("dialogIcon", label: "Dialog Icon") {
+                settingRow("dialogIcon", label: "Icon") {
                     TextField("SF Symbol name (e.g. gearshape.2.fill)", text: $viewModel.dialogIcon)
                         .textFieldStyle(.roundedBorder)
                 }
 
-                settingRow("blurScreen", label: "Blur Screen") {
+                settingRow("blurScreen") {
                     Toggle("Blur screen behind dialog", isOn: $viewModel.blurScreen)
                 }
             }
             .padding(.vertical, 8)
+        } label: {
+            Label("Dialog", systemImage: "text.bubble")
+                .font(.headline)
         }
     }
 
     @ViewBuilder
     private var advancedSection: some View {
-        GroupBox("Advanced") {
+        GroupBox {
             VStack(alignment: .leading, spacing: 12) {
                 settingRow("customInstallPath", label: "Install Path") {
-                    TextField("/Library/Application Support/BootstrapMate", text: $viewModel.customInstallPath)
+                    TextField("/Library/Managed Bootstrap", text: $viewModel.customInstallPath)
                         .textFieldStyle(.roundedBorder)
                 }
 
@@ -232,13 +237,21 @@ struct SettingsView: View {
                 }
 
                 settingRow("networkTimeout", label: "Network Timeout") {
-                    Stepper(value: $viewModel.networkTimeout, in: 10...600, step: 10) {
-                        Text("\(viewModel.networkTimeout) seconds")
-                            .monospacedDigit()
+                    HStack {
+                        TextField("", value: $viewModel.networkTimeout, format: .number)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 60)
+                        Stepper("", value: $viewModel.networkTimeout, in: 10...600, step: 10)
+                            .labelsHidden()
+                        Text("seconds")
+                            .foregroundStyle(.secondary)
                     }
                 }
             }
             .padding(.vertical, 8)
+        } label: {
+            Label("Advanced", systemImage: "wrench.and.screwdriver")
+                .font(.headline)
         }
     }
 
@@ -247,14 +260,16 @@ struct SettingsView: View {
     @ViewBuilder
     private func settingRow<Content: View>(
         _ key: String,
-        label: String,
+        label: String? = nil,
         @ViewBuilder content: () -> Content
     ) -> some View {
         let managed = viewModel.isMDMManaged(key)
         VStack(alignment: .leading, spacing: 2) {
-            Text(label)
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            if let label {
+                Text(label)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
             content()
                 .disabled(managed)
             if managed {

@@ -12,17 +12,16 @@ import BootstrapMateCore
 struct RunView: View {
     @Bindable var viewModel: SettingsViewModel
     @Environment(XPCClient.self) private var xpcClient
-    @State private var showDebug = true
+    @State private var showDebug = false
 
     var body: some View {
-        let lines = showDebug ? xpcClient.outputLines : xpcClient.outputLines.filter { $0.level != .debug }
         VStack(spacing: 0) {
             runControlBar
                 .padding()
 
             Divider()
 
-            ConsoleView(outputLines: lines)
+            ConsoleView(outputLines: showDebug ? xpcClient.outputLines : xpcClient.outputLines.filter { $0.level != .debug })
                 .padding()
         }
     }
@@ -147,9 +146,6 @@ struct RunView: View {
                 Label("Failed (exit \(exitCode))", systemImage: "xmark.circle.fill")
                     .foregroundStyle(.red)
             }
-        } else if xpcClient.isRunning {
-            Label("Running", systemImage: "circle.dotted.circle")
-                .foregroundStyle(.blue)
         }
 
         if xpcClient.helperStatus != .registered && !xpcClient.isRunning {

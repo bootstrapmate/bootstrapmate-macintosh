@@ -20,6 +20,6 @@ struct BootstrapMateApp: App {
                 .frame(minWidth: 700, minHeight: 500)
         }
         .windowResizability(.contentSize)
-        .defaultSize(width: 850, height: 680)
+        .defaultSize(width: 850, height: 748)
     }
 }
