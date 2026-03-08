@@ -66,7 +66,7 @@ struct SettingsView: View {
             Text("BootstrapMate")
                 .font(.largeTitle.bold())
 
-            Text("macOS provisioning tool for automated device setup using JSON manifests.")
+            Text("Enterprise management tools provisioning for automated device setup using manifests.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
