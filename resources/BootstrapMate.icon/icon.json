@@ -1,6 +1,8 @@
 {
   "color-space-for-untagged-svg-colors" : "display-p3",
-  "fill" : "automatic",
+  "fill" : {
+    "automatic-gradient" : "display-p3:0.95947,0.73145,0.35010,1.00000"
+  },
   "groups" : [
     {
       "layers" : [

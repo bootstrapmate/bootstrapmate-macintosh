@@ -12,6 +12,7 @@ import BootstrapMateCore
 struct SettingsView: View {
     @Bindable var viewModel: SettingsViewModel
     @Environment(XPCClient.self) private var xpcClient
+    @State private var showManifestPreview = false
 
     private var marketingVersion: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "–"
@@ -40,17 +41,19 @@ struct SettingsView: View {
                     advancedSection
                 }
 
-                // Save row
+                // Auto-save status
                 HStack {
                     Spacer()
                     saveStatusLabel
-                    saveButton
                 }
                 .padding(.top, 4)
             }
             .padding()
         }
-        .onAppear { viewModel.load() }
+        .onAppear {
+            viewModel.configure(client: xpcClient)
+            viewModel.load()
+        }
     }
 
     // MARK: - App Info Header
@@ -81,27 +84,7 @@ struct SettingsView: View {
         .padding(.top, 8)
     }
 
-    // MARK: - Save Button
-
-    @ViewBuilder
-    private var saveButton: some View {
-        if #available(macOS 26, *) {
-            Button("Save Settings") {
-                viewModel.save(using: xpcClient)
-            }
-            .buttonStyle(.glassProminent)
-            .tint(.accentColor)
-            .keyboardShortcut(.return, modifiers: .command)
-            .disabled(xpcClient.isRunning)
-        } else {
-            Button("Save Settings") {
-                viewModel.save(using: xpcClient)
-            }
-            .buttonStyle(.borderedProminent)
-            .keyboardShortcut(.return, modifiers: .command)
-            .disabled(xpcClient.isRunning)
-        }
-    }
+    // MARK: - Auto-Save Status
 
     @ViewBuilder
     private var saveStatusLabel: some View {
@@ -130,8 +113,23 @@ struct SettingsView: View {
         GroupBox {
             VStack(alignment: .leading, spacing: 12) {
                 settingRow("jsonUrl", label: "Manifest URL") {
-                    TextField("https://example.com/manifest.json", text: $viewModel.jsonUrl)
-                        .textFieldStyle(.roundedBorder)
+                    HStack(spacing: 6) {
+                        TextField("https://example.com/manifest.json", text: $viewModel.jsonUrl)
+                            .textFieldStyle(.roundedBorder)
+                        Button {
+                            viewModel.fetchManifestPreview()
+                            showManifestPreview = true
+                        } label: {
+                            Image(systemName: "eye")
+                        }
+                        .buttonStyle(.borderless)
+                        .disabled(viewModel.jsonUrl.isEmpty)
+                        .help("Preview manifest content")
+                        .popover(isPresented: $showManifestPreview, arrowEdge: .trailing) {
+                            ManifestPreviewPopover(viewModel: viewModel)
+                                .onDisappear { viewModel.resetManifestPreview() }
+                        }
+                    }
                 }
 
                 settingRow("authorizationHeader", label: "Authorization Header") {
@@ -254,6 +252,56 @@ struct SettingsView: View {
         } label: {
             Label("Advanced", systemImage: "wrench.and.screwdriver")
                 .font(.headline)
+        }
+    }
+
+    // MARK: - Manifest Preview Popover
+
+    private struct ManifestPreviewPopover: View {
+        let viewModel: SettingsViewModel
+
+        var body: some View {
+            VStack(alignment: .leading, spacing: 0) {
+                HStack {
+                    Label("Manifest Preview", systemImage: "doc.text.magnifyingglass")
+                        .font(.headline)
+                    Spacer()
+                }
+                .padding()
+
+                Divider()
+
+                Group {
+                    switch viewModel.manifestPreviewState {
+                    case .idle:
+                        Text("Tap the button to load the manifest.")
+                            .foregroundStyle(.secondary)
+                            .padding(40)
+                    case .loading:
+                        HStack(spacing: 8) {
+                            ProgressView()
+                                .controlSize(.small)
+                            Text("Fetching manifest\u{2026}")
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding(40)
+                    case .loaded(let content):
+                        ScrollView([.horizontal, .vertical]) {
+                            Text(content)
+                                .font(.system(.caption, design: .monospaced))
+                                .textSelection(.enabled)
+                                .padding()
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .frame(width: 720, height: 520)
+                    case .failed(let message):
+                        Label(message, systemImage: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.red)
+                            .padding(40)
+                    }
+                }
+            }
+            .frame(minWidth: 720)
         }
     }
 

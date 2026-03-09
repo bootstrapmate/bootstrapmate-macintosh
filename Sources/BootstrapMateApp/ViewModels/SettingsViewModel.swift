@@ -14,33 +14,53 @@ import BootstrapMateCore
 @MainActor
 final class SettingsViewModel {
 
+    // MARK: - Auto-Save
+
+    private var xpcClient: XPCClient?
+    private var autoSaveTask: Task<Void, Never>?
+    private var isLoading = false
+
+    func configure(client: XPCClient) {
+        xpcClient = client
+    }
+
+    private func scheduleAutoSave() {
+        guard !isLoading, let client = xpcClient, !client.isRunning else { return }
+        autoSaveTask?.cancel()
+        autoSaveTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(0.75))
+            guard !Task.isCancelled, let self else { return }
+            self.save(using: client)
+        }
+    }
+
     // MARK: - Setting Values
 
     // Connection
-    var jsonUrl: String = ""
-    var authorizationHeader: String = ""
+    var jsonUrl: String = "" { didSet { scheduleAutoSave() } }
+    var authorizationHeader: String = "" { didSet { scheduleAutoSave() } }
     var hasExistingAuth: Bool = false
-    var followRedirects: Bool = false
+    var followRedirects: Bool = false { didSet { scheduleAutoSave() } }
 
     // Behavior
-    var reboot: Bool = false
-    var silentMode: Bool = false
-    var verboseMode: Bool = false
-    var dryRun: Bool = false
-    var userscriptOnly: Bool = false
+    var reboot: Bool = false { didSet { scheduleAutoSave() } }
+    var silentMode: Bool = false { didSet { scheduleAutoSave() } }
+    var verboseMode: Bool = false { didSet { scheduleAutoSave() } }
+    var dryRun: Bool = false { didSet { scheduleAutoSave() } }
+    var userscriptOnly: Bool = false { didSet { scheduleAutoSave() } }
 
     // Dialog / UI
-    var enableDialog: Bool = true
-    var dialogTitle: String = "Setting up your Mac"
-    var dialogMessage: String = "Please wait while we configure your device..."
-    var dialogIcon: String = ""
-    var blurScreen: Bool = false
+    var enableDialog: Bool = true { didSet { scheduleAutoSave() } }
+    var dialogTitle: String = "Setting up your Mac" { didSet { scheduleAutoSave() } }
+    var dialogMessage: String = "Please wait while we configure your device..." { didSet { scheduleAutoSave() } }
+    var dialogIcon: String = "" { didSet { scheduleAutoSave() } }
+    var blurScreen: Bool = false { didSet { scheduleAutoSave() } }
 
     // Advanced
-    var customInstallPath: String = ""
-    var daemonIdentifier: String = BootstrapMateConstants.daemonIdentifier
-    var agentIdentifier: String = BootstrapMateConstants.daemonIdentifier
-    var networkTimeout: Int = 120
+    var customInstallPath: String = "" { didSet { scheduleAutoSave() } }
+    var daemonIdentifier: String = BootstrapMateConstants.daemonIdentifier { didSet { scheduleAutoSave() } }
+    var agentIdentifier: String = BootstrapMateConstants.daemonIdentifier { didSet { scheduleAutoSave() } }
+    var networkTimeout: Int = 120 { didSet { scheduleAutoSave() } }
 
     // MARK: - Save Status
 
@@ -48,6 +68,63 @@ final class SettingsViewModel {
 
     enum SaveStatus {
         case idle, saving, saved, failed(String)
+    }
+
+    // MARK: - Manifest Preview
+
+    enum PreviewState {
+        case idle
+        case loading
+        case loaded(String)
+        case failed(String)
+    }
+
+    private(set) var manifestPreviewState: PreviewState = .idle
+
+    func fetchManifestPreview() {
+        guard !jsonUrl.isEmpty, let url = URL(string: jsonUrl) else {
+            manifestPreviewState = .failed("Invalid or empty URL")
+            return
+        }
+
+        // Use newly entered header first; fall back to the stored one if present
+        let authHeader: String?
+        if !authorizationHeader.isEmpty {
+            authHeader = authorizationHeader
+        } else if hasExistingAuth {
+            authHeader = ConfigManager.shared.config.authorizationHeader
+        } else {
+            authHeader = nil
+        }
+
+        manifestPreviewState = .loading
+
+        NetworkManager.shared.downloadData(from: url, followRedirects: followRedirects, authHeader: authHeader) { [weak self] data, error in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                if let error {
+                    self.manifestPreviewState = .failed(error.localizedDescription)
+                    return
+                }
+                guard let data else {
+                    self.manifestPreviewState = .failed("No data received")
+                    return
+                }
+                if let json = try? JSONSerialization.jsonObject(with: data),
+                   let prettyData = try? JSONSerialization.data(withJSONObject: json, options: .prettyPrinted),
+                   let prettyString = String(data: prettyData, encoding: .utf8) {
+                    self.manifestPreviewState = .loaded(prettyString)
+                } else if let rawString = String(data: data, encoding: .utf8) {
+                    self.manifestPreviewState = .loaded(rawString)
+                } else {
+                    self.manifestPreviewState = .failed("Unable to decode response")
+                }
+            }
+        }
+    }
+
+    func resetManifestPreview() {
+        manifestPreviewState = .idle
     }
 
     // MARK: - MDM Status
@@ -61,6 +138,9 @@ final class SettingsViewModel {
     // MARK: - Loading
 
     func load() {
+        isLoading = true
+        defer { isLoading = false }
+
         ConfigManager.shared.reloadPreferences()
         let config = ConfigManager.shared.config
         let detector = MDMDetector.shared
@@ -91,8 +171,6 @@ final class SettingsViewModel {
 
     /// Saves all non-MDM-managed settings via the XPC helper.
     func save(using client: XPCClient) {
-        saveStatus = .saving
-
         func saveString(_ key: String, _ value: String) {
             guard !isMDMManaged(key) else { return }
             if value.isEmpty {
