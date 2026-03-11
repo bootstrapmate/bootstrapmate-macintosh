@@ -286,14 +286,9 @@ struct SettingsView: View {
                         }
                         .padding(40)
                     case .loaded(let content):
-                        ScrollView([.horizontal, .vertical]) {
-                            Text(content)
-                                .font(.system(.caption, design: .monospaced))
-                                .textSelection(.enabled)
-                                .padding()
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                        .frame(width: 720, height: 520)
+                        TextEditor(text: .constant(content))
+                            .font(.system(.caption, design: .monospaced))
+                            .frame(width: 720, height: 520)
                     case .failed(let message):
                         Label(message, systemImage: "exclamationmark.triangle.fill")
                             .foregroundStyle(.red)
