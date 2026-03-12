@@ -144,6 +144,17 @@ struct BootstrapMate: ParsableCommand {
         )
         
         earlyLog("Logger initialized, log file: \(Logger.getLogFilePath() ?? "unknown")")
+
+        // Handle SIGTERM (sent by the helper when the user clicks Stop) by
+        // terminating SwiftDialog before exiting, so the dialog doesn't linger.
+        signal(SIGTERM, SIG_IGN)
+        let sigtermSource = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .global())
+        sigtermSource.setEventHandler {
+            Logger.warning("Received SIGTERM — terminating dialog and exiting")
+            DialogManager.shared.terminateDialog()
+            Foundation.exit(1)
+        }
+        sigtermSource.resume()
         
         Logger.info("BootstrapMate v\(version) started")
         Logger.debug("CLI arguments: \(CommandLine.arguments.joined(separator: " "))")
