@@ -1,6 +1,6 @@
 # BootstrapMate
 
-A macOS bootstrap orchestration tool for automated device provisioning.
+A bootstrapping tool for Mac device provisioning that downloads and installs packages during Remote Management enrollment in Setup Assistant or after user login.
 
 ## Features
 
