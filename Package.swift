@@ -21,26 +21,30 @@ let package = Package(
             name: "BootstrapMateCore",
             dependencies: [
                 .product(name: "Yams", package: "Yams")
-            ]
+            ],
+            path: "Sources/core"
         ),
         .executableTarget(
             name: "BootstrapMateCLI",
             dependencies: [
                 "BootstrapMateCore",
                 .product(name: "ArgumentParser", package: "swift-argument-parser")
-            ]
+            ],
+            path: "Sources/cli"
         ),
         .executableTarget(
             name: "BootstrapMateApp",
             dependencies: [
                 "BootstrapMateCore"
-            ]
+            ],
+            path: "Sources/app"
         ),
         .executableTarget(
             name: "BootstrapMateHelper",
             dependencies: [
                 "BootstrapMateCore"
-            ]
+            ],
+            path: "Sources/helper"
         ),
         .testTarget(
             name: "BootstrapMateCoreTests",
