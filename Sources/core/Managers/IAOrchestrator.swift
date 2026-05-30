@@ -78,14 +78,20 @@ public final class IAOrchestrator {
             }
         }
         
-        // Phase 2: Setup Assistant
-        if success, let setupassistant = manifest.setupassistant, !setupassistant.isEmpty {
-            success = runSetupAssistantStage(setupassistant)
+        // Phase 2: Setup Assistant — record item failures but never let them abort
+        // the run, so the user-facing userland phase still runs even when an
+        // individual setup package fails to download or install.
+        if let setupassistant = manifest.setupassistant, !setupassistant.isEmpty {
+            let setupSuccess = runSetupAssistantStage(setupassistant)
+            success = success && setupSuccess
         }
-        
-        // Phase 3: Userland (wait for user session)
-        if success, let userland = manifest.userland, !userland.isEmpty {
-            success = runUserlandStage(userland)
+
+        // Phase 3: Userland (wait for user session) — runs whenever userland items
+        // exist, regardless of setupassistant outcomes, so a single failed setup
+        // package (e.g. SwiftDialog failing to download) cannot strand provisioning.
+        if let userland = manifest.userland, !userland.isEmpty {
+            let userlandSuccess = runUserlandStage(userland)
+            success = success && userlandSuccess
         }
         
         // Completion
