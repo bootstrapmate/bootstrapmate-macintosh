@@ -62,11 +62,12 @@ public final class IAOrchestrator {
         }
         
         var success = true
-        
+        var preflightFailed = false
+
         // Phase 1: Preflight
         if let preflight = manifest.preflight, !preflight.isEmpty {
             let preflightResult = runPreflightStage(preflight)
-            
+
             if preflightResult == .skipBootstrap {
                 // Preflight returned 0 - skip remaining stages and cleanup
                 Logger.info("Preflight script returned 0. Skipping bootstrap and cleaning up.")
@@ -74,18 +75,29 @@ public final class IAOrchestrator {
                 cleanupAndExit(success: true)
                 return true
             } else if preflightResult == .failed {
+                // A failed preflight (download error / negative exit) still gates the
+                // later phases, as it did before — only setupassistant *item* failures
+                // are made non-blocking below.
                 success = false
+                preflightFailed = true
             }
         }
-        
-        // Phase 2: Setup Assistant
-        if success, let setupassistant = manifest.setupassistant, !setupassistant.isEmpty {
-            success = runSetupAssistantStage(setupassistant)
+
+        // Phase 2: Setup Assistant — record item failures but never let them abort
+        // the run, so the user-facing userland phase still runs even when an
+        // individual setup package fails to download or install.
+        if !preflightFailed, let setupassistant = manifest.setupassistant, !setupassistant.isEmpty {
+            let setupSuccess = runSetupAssistantStage(setupassistant)
+            success = success && setupSuccess
         }
-        
-        // Phase 3: Userland (wait for user session)
-        if success, let userland = manifest.userland, !userland.isEmpty {
-            success = runUserlandStage(userland)
+
+        // Phase 3: Userland (wait for user session) — runs whenever userland items
+        // exist, regardless of setupassistant outcomes, so a single failed setup
+        // package (e.g. SwiftDialog failing to download) cannot strand provisioning.
+        // A failed preflight still skips it.
+        if !preflightFailed, let userland = manifest.userland, !userland.isEmpty {
+            let userlandSuccess = runUserlandStage(userland)
+            success = success && userlandSuccess
         }
         
         // Completion
@@ -439,10 +451,55 @@ public final class IAOrchestrator {
 // MARK: - Cleanup Registration
 
 public func registerCleanupTasks() {
-    // The LaunchDaemon is already installed via the package and loaded by postinstall.
-    // We don't need to re-register it here - that was causing the wrong plist to be created.
-    // The daemon with NetworkState keepalive will restart us when needed.
-    
-    Logger.info("Session complete - LaunchDaemon \(BootstrapMateConstants.daemonIdentifier) will handle future runs")
+    // One-shot teardown: the bootstrap daemon removes itself when the run
+    // completes so launchd never re-runs it. The plist file is deleted first
+    // (so a reboot cannot reload it), then the job is booted out as the final
+    // act.
+    //
+    // The fire-and-forget userland work (e.g. the provisioning Munki run) is a
+    // root child of this process. AbandonProcessGroup=true in the daemon plist
+    // keeps it alive after we exit / get booted out — without it launchd would
+    // SIGKILL the whole process group and strand the run.
+    let identifier = BootstrapMateConstants.daemonIdentifier
+    let plistPath = "/Library/LaunchDaemons/\(identifier).plist"
+
+    Logger.info("Session complete — removing one-shot LaunchDaemon \(identifier)")
+
+    if FileManager.default.fileExists(atPath: plistPath) {
+        do {
+            try FileManager.default.removeItem(atPath: plistPath)
+            Logger.info("Removed \(plistPath)")
+        } catch {
+            Logger.warning("Could not remove \(plistPath): \(error.localizedDescription)")
+        }
+    }
+
+    // Boot ourselves out last. This signals our own process, but the userland
+    // child survives via AbandonProcessGroup. Fall back to the legacy
+    // `launchctl remove` when bootout throws OR exits non-zero (older launchctl,
+    // domain/permission issues) so the daemon never lingers loaded.
+    var bootedOut = false
+    let bootout = Process()
+    bootout.launchPath = "/bin/launchctl"
+    bootout.arguments = ["bootout", "system/\(identifier)"]
+    do {
+        try bootout.run()
+        bootout.waitUntilExit()
+        bootedOut = bootout.terminationStatus == 0
+    } catch {
+        bootedOut = false
+    }
+
+    if !bootedOut {
+        let legacy = Process()
+        legacy.launchPath = "/bin/launchctl"
+        legacy.arguments = ["remove", identifier]
+        do {
+            try legacy.run()
+            legacy.waitUntilExit()
+        } catch {
+            Logger.warning("Could not remove LaunchDaemon \(identifier): \(error.localizedDescription)")
+        }
+    }
 }
 
