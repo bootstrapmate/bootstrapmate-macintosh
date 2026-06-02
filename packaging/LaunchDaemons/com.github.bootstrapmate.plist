@@ -10,10 +10,7 @@
     </array>
     <key>RunAtLoad</key>
     <true/>
-    <key>KeepAlive</key>
-    <dict>
-        <key>NetworkState</key>
-        <true/>
-    </dict>
+    <key>AbandonProcessGroup</key>
+    <true/>
 </dict>
 </plist>
