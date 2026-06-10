@@ -1,0 +1,156 @@
+# Builds an UNSIGNED BootstrapMate .pkg and publishes it as a GitHub release.
+#
+# This public repo holds NO Apple Developer ID -- the pkg ships unsigned and
+# un-notarized. The ECU Munki bootstrap pipeline (private Azure DevOps) pulls
+# this release via `gh release download`, then deep-signs the inner app/Mach-O
+# with the Developer ID Application cert, productsigns the pkg with the
+# Developer ID Installer cert, notarizes, and staples -- so signing only ever
+# happens inside that private/internal pipeline.
+#
+# The assembly mirrors the Makefile's build (CLI + GUI + Helper binaries, icon,
+# LaunchDaemons, relocation-disabled pkg) MINUS every codesign/notarize step.
+# The Makefile remains the local signed-build tool and is not used here.
+#
+# Run manually via the Actions tab, or trigger by pushing a tag like
+# v2026.06.10.1430. Tagging a new version is the only step needed to roll a new
+# BootstrapMate to the fleet (the Munki pipeline picks up `latest` on its next run).
+
+name: Release
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build unsigned pkg + publish
+    runs-on: macos-15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_16.2.app
+
+      - name: Show Swift version
+        run: swift --version
+
+      - name: Resolve version from tag
+        id: ver
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if [[ "$REF_TYPE" == "tag" ]]; then
+            VERSION="${REF_NAME#v}"
+          else
+            VERSION="$(date '+%Y.%m.%d.%H%M')"
+          fi
+          printf 'version=%s\n' "$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Building BootstrapMate $VERSION"
+
+      - name: Build Swift binaries (release, universal)
+        run: |
+          set -euo pipefail
+          swift package resolve
+          swift build -c release --arch arm64 --arch x86_64
+
+      - name: Assemble unsigned pkg (CLI + GUI + Helper + icon)
+        id: pkg
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          # Split VERSION (2026.06.10.1430) -> marketing 2026.06.10 + build 1430.
+          MARKETING_VERSION="${VERSION%.*}"
+          BUILD_NUMBER="${VERSION##*.}"
+
+          BUILD_DIR=build
+          PKG_ROOT="$BUILD_DIR/pkg-root"
+          PACKAGING_DIR=packaging
+          SWIFT_REL=.build/apple/Products/Release
+          ACTOOL_OUT="$BUILD_DIR/actool-out"
+          APP="$PKG_ROOT/Applications/Utilities/BootstrapMate.app"
+          APP_MACOS="$APP/Contents/MacOS"
+          APP_RES="$APP/Contents/Resources"
+          APP_HELPER_LD="$APP/Contents/Library/LaunchDaemons"
+
+          rm -rf "$BUILD_DIR"
+          mkdir -p "$APP_MACOS" "$APP_RES" "$APP_HELPER_LD" \
+                   "$PKG_ROOT/Library/LaunchDaemons" "$BUILD_DIR/scripts" \
+                   "$PKG_ROOT/usr/local/bootstrapmate" "$ACTOOL_OUT"
+
+          # Binaries (NO codesign -- the Munki pipeline signs downstream).
+          cp "$SWIFT_REL/bootstrapmate"        "$APP_MACOS/installapplications"
+          cp "$SWIFT_REL/BootstrapMateApp"     "$APP_MACOS/BootstrapMateGUI"
+          cp "$SWIFT_REL/BootstrapMateHelper"  "$APP_MACOS/BootstrapMateHelper"
+          chmod 755 "$APP_MACOS/installapplications" "$APP_MACOS/BootstrapMateGUI" "$APP_MACOS/BootstrapMateHelper"
+
+          # Info.plist (version placeholders).
+          sed -e "s/{{MARKETING_VERSION}}/$MARKETING_VERSION/g" \
+              -e "s/{{BUILD_NUMBER}}/$BUILD_NUMBER/g" \
+              "$PACKAGING_DIR/resources/Info.plist.template" > "$APP/Contents/Info.plist"
+
+          # Icon: Assets.car (macOS 26+ Liquid Glass) + .icns fallback (13-25).
+          xcrun actool \
+            --compile "$ACTOOL_OUT" \
+            --platform macosx \
+            --minimum-deployment-target 13.0 \
+            --app-icon BootstrapMate \
+            --output-partial-info-plist "$ACTOOL_OUT/partial-info.plist" \
+            --warnings --errors \
+            resources/BootstrapMate.icon > /dev/null
+          cp "$ACTOOL_OUT/Assets.car"        "$APP_RES/Assets.car"
+          cp "$ACTOOL_OUT/BootstrapMate.icns" "$APP_RES/BootstrapMate.icns"
+
+          # LaunchDaemons + postinstall.
+          cp "$PACKAGING_DIR/LaunchDaemons/com.github.bootstrapmate.plist"        "$PKG_ROOT/Library/LaunchDaemons/"
+          cp "$PACKAGING_DIR/LaunchDaemons/com.github.bootstrapmate.helper.plist" "$APP_HELPER_LD/"
+          cp "$PACKAGING_DIR/scripts/postinstall" "$BUILD_DIR/scripts/"
+          chmod +x "$BUILD_DIR/scripts/postinstall"
+          touch "$PKG_ROOT/usr/local/bootstrapmate/.placeholder"
+
+          # pkgbuild with relocation + version-check disabled (mirrors the Makefile).
+          pkgbuild --analyze --root "$PKG_ROOT" "$BUILD_DIR/component.plist"
+          /usr/libexec/PlistBuddy -c "Set :0:BundleIsRelocatable false"   "$BUILD_DIR/component.plist"
+          /usr/libexec/PlistBuddy -c "Set :0:BundleIsVersionChecked false" "$BUILD_DIR/component.plist"
+          PKG="$BUILD_DIR/BootstrapMate-${VERSION}.pkg"
+          pkgbuild \
+            --root "$PKG_ROOT" \
+            --component-plist "$BUILD_DIR/component.plist" \
+            --identifier com.github.bootstrapmate \
+            --version "$VERSION" \
+            --scripts "$BUILD_DIR/scripts" \
+            "$PKG"
+
+          echo "pkg=$PKG" >> "$GITHUB_OUTPUT"
+          echo "--- built (unsigned) ---"
+          ls -lh "$PKG"
+          pkgutil --payload-files "$PKG" | grep -E 'BootstrapMate(GUI|Helper)|installapplications' || true
+
+      - name: Upload pkg artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: BootstrapMate-${{ steps.ver.outputs.version }}-pkg
+          path: ${{ steps.pkg.outputs.pkg }}
+
+      - name: Publish GitHub release (unsigned pkg)
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ github.ref_name }}
+          PKG: ${{ steps.pkg.outputs.pkg }}
+        run: |
+          set -euo pipefail
+          gh release create "$TAG_NAME" "$PKG" \
+            --title "$TAG_NAME" \
+            --notes "Unsigned BootstrapMate pkg. Signed + notarized downstream by the ECU Munki bootstrap pipeline." \
+            --generate-notes
