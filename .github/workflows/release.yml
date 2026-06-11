@@ -150,7 +150,9 @@ jobs:
           PKG: ${{ steps.pkg.outputs.pkg }}
         run: |
           set -euo pipefail
+          AUTO_NOTES=$(gh api -X POST "repos/$GITHUB_REPOSITORY/releases/generate-notes" -f tag_name="$TAG_NAME" --jq .body)
+          AUTO_NOTES=$(printf '%s\n' "$AUTO_NOTES" | sed -E -e 's/ by @[A-Za-z0-9_-]+ in / in /g' -e '/^#+ New Contributors/d' -e '/made their first contribution/d')
+          NOTES=$(printf '%s\n\n%s\n' "Unsigned BootstrapMate pkg. Signed + notarized downstream by the ECU Munki bootstrap pipeline." "$AUTO_NOTES")
           gh release create "$TAG_NAME" "$PKG" \
             --title "$TAG_NAME" \
-            --notes "Unsigned BootstrapMate pkg. Signed + notarized downstream by the ECU Munki bootstrap pipeline." \
-            --generate-notes
+            --notes "$NOTES"
