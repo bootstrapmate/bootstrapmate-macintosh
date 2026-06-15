@@ -23,6 +23,10 @@ public struct BootstrapMateConfig {
     public var customInstallPath: String?
     public var daemonIdentifier: String
     public var agentIdentifier: String
+    // Security: package signature verification
+    public var verifyPackageSignatures: Bool
+    public var expectedTeamID: String?
+    public var allowUnsigned: Bool
     // Dialog / UI settings
     public var enableDialog: Bool
     public var dialogTitle: String
@@ -43,6 +47,9 @@ public struct BootstrapMateConfig {
         customInstallPath: String? = nil,
         daemonIdentifier: String = BootstrapMateConstants.daemonIdentifier,
         agentIdentifier: String = BootstrapMateConstants.daemonIdentifier,
+        verifyPackageSignatures: Bool = true,
+        expectedTeamID: String? = nil,
+        allowUnsigned: Bool = false,
         enableDialog: Bool = true,
         dialogTitle: String = "Setting up your Mac",
         dialogMessage: String = "Please wait while we configure your device...",
@@ -61,6 +68,9 @@ public struct BootstrapMateConfig {
         self.customInstallPath = customInstallPath
         self.daemonIdentifier = daemonIdentifier
         self.agentIdentifier = agentIdentifier
+        self.verifyPackageSignatures = verifyPackageSignatures
+        self.expectedTeamID = expectedTeamID
+        self.allowUnsigned = allowUnsigned
         self.enableDialog = enableDialog
         self.dialogTitle = dialogTitle
         self.dialogMessage = dialogMessage
@@ -107,7 +117,10 @@ public final class ConfigManager {
         reboot: Bool? = nil,
         userscriptOnly: Bool? = nil,
         silentMode: Bool? = nil,
-        verboseMode: Bool? = nil
+        verboseMode: Bool? = nil,
+        verifyPackageSignatures: Bool? = nil,
+        expectedTeamID: String? = nil,
+        allowUnsigned: Bool? = nil
     ) {
         if let url = jsonUrl, !url.isEmpty {
             config.jsonUrl = url
@@ -147,6 +160,21 @@ public final class ConfigManager {
         if let verbose = verboseMode {
             config.verboseMode = verbose
             Logger.debug("CLI override: verboseMode = \(verbose)")
+        }
+
+        if let verify = verifyPackageSignatures {
+            config.verifyPackageSignatures = verify
+            Logger.debug("CLI override: verifyPackageSignatures = \(verify)")
+        }
+
+        if let team = expectedTeamID, !team.isEmpty {
+            config.expectedTeamID = team
+            Logger.debug("CLI override: expectedTeamID = \(team)")
+        }
+
+        if let allow = allowUnsigned {
+            config.allowUnsigned = allow
+            Logger.debug("CLI override: allowUnsigned = \(allow)")
         }
     }
     
@@ -349,6 +377,29 @@ public final class ConfigManager {
             config.agentIdentifier = value
         }
         
+        // Security: package signature verification
+        let verifyKeys = ["verifyPackageSignatures", "VerifyPackageSignatures", "verifySignatures"]
+        for key in verifyKeys {
+            if let value = CFPreferencesCopyAppValue(key as CFString, cfDomain) as? Bool {
+                config.verifyPackageSignatures = value
+                break
+            }
+        }
+        let teamIDKeys = ["expectedTeamID", "ExpectedTeamID", "teamID", "TeamID"]
+        for key in teamIDKeys {
+            if let value = CFPreferencesCopyAppValue(key as CFString, cfDomain) as? String, !value.isEmpty {
+                config.expectedTeamID = value
+                break
+            }
+        }
+        let allowUnsignedKeys = ["allowUnsigned", "AllowUnsigned"]
+        for key in allowUnsignedKeys {
+            if let value = CFPreferencesCopyAppValue(key as CFString, cfDomain) as? Bool {
+                config.allowUnsigned = value
+                break
+            }
+        }
+
         // Dialog / UI settings
         if let value = CFPreferencesCopyAppValue("enableDialog" as CFString, cfDomain) as? Bool {
             config.enableDialog = value
@@ -431,6 +482,9 @@ public final class ConfigManager {
         Logger.debug("  silentMode: \(config.silentMode)")
         Logger.debug("  verboseMode: \(config.verboseMode)")
         Logger.debug("  installPath: \(getInstallPath())")
+        Logger.debug("  verifyPackageSignatures: \(config.verifyPackageSignatures)")
+        Logger.debug("  expectedTeamID: \(config.expectedTeamID ?? "any trusted")")
+        Logger.debug("  allowUnsigned: \(config.allowUnsigned)")
         Logger.debug("  daemonIdentifier: \(config.daemonIdentifier)")
         Logger.debug("  enableDialog: \(config.enableDialog)")
         Logger.debug("  dialogTitle: \(config.dialogTitle)")
