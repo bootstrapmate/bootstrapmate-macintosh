@@ -3,7 +3,7 @@
 //  BootstrapMate
 //
 //  Main tab with centered app info header and settings below.
-//  MDM-managed settings display a lock icon and are disabled.
+//  management-managed settings display a lock icon and are disabled.
 //
 
 import SwiftUI
@@ -308,7 +308,7 @@ struct SettingsView: View {
         label: String? = nil,
         @ViewBuilder content: () -> Content
     ) -> some View {
-        let managed = viewModel.isMDMManaged(key)
+        let managed = viewModel.isManaged(key)
         VStack(alignment: .leading, spacing: 2) {
             if let label {
                 Text(label)
@@ -318,7 +318,7 @@ struct SettingsView: View {
             content()
                 .disabled(managed)
             if managed {
-                Label("Managed by MDM", systemImage: "lock.fill")
+                Label("Managed", systemImage: "lock.fill")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

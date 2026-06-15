@@ -2,7 +2,7 @@
 //  StatusManager.swift
 //  BootstrapMate
 //
-//  Tracks installation status via plist and JSON for MDM detection.
+//  Tracks installation status via plist and JSON for management detection.
 //  macOS equivalent of Windows StatusManager.cs using property lists.
 //
 
