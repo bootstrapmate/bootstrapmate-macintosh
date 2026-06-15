@@ -127,7 +127,7 @@ final class SettingsViewModel {
         manifestPreviewState = .idle
     }
 
-    // MARK: - management Status
+    // MARK: - Management
 
     private(set) var managedKeys: Set<String> = []
 
@@ -169,7 +169,7 @@ final class SettingsViewModel {
 
     // MARK: - Saving
 
-    /// Saves all non-management-managed settings via the XPC helper.
+    /// Saves all non-managed settings via the XPC helper.
     func save(using client: XPCClient) {
         func saveString(_ key: String, _ value: String) {
             guard !isManaged(key) else { return }

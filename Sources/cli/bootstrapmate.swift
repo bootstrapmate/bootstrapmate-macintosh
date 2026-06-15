@@ -195,8 +195,8 @@ struct BootstrapMate: ParsableCommand {
                 for i in 1...managementTimeout {
                     // Reload preferences from management domains
                     if ConfigManager.shared.reloadManagedPreferences() {
-                        Logger.success("management configuration received after \(i)s")
-                        earlyLog("management config received after \(i)s")
+                        Logger.success("Management configuration received after \(i)s")
+                        earlyLog("Management config received after \(i)s")
                         break
                     }
                     
@@ -208,8 +208,8 @@ struct BootstrapMate: ParsableCommand {
                     Thread.sleep(forTimeInterval: 1)
                     
                     if i == managementTimeout {
-                        Logger.warning("management configuration not received within \(managementTimeout)s")
-                        earlyLog("management config timeout after \(managementTimeout)s")
+                        Logger.warning("Management configuration not received within \(managementTimeout)s")
+                        earlyLog("Management config timeout after \(managementTimeout)s")
                     }
                 }
             }
@@ -256,7 +256,7 @@ struct BootstrapMate: ParsableCommand {
             }
         } else {
             // No URL provided - check if we have embedded config or should fail
-            Logger.warning("No JSON URL provided via CLI or management")
+            Logger.warning("No JSON URL provided via CLI or managed preferences")
             
             // Try to fetch from ConfigManager's external config
             if ConfigManager.shared.fetchExternalConfig() {

@@ -49,7 +49,7 @@ public final class ManagementDetector: Sendable {
         return false
     }
 
-    /// Returns the management-managed value for a canonical key, or nil.
+    /// Returns the managed value for a canonical key, or nil.
     public func managedValue(forKey key: String) -> Any? {
         let keysToCheck = Self.keyAliases[key] ?? [key]
         for domain in managedDomains {
@@ -63,7 +63,7 @@ public final class ManagementDetector: Sendable {
         return nil
     }
 
-    /// Returns the set of canonical keys that are management-managed.
+    /// Returns the set of canonical keys that are managed.
     public func allManagedKeys() -> Set<String> {
         var result = Set<String>()
         for (canonical, aliases) in Self.keyAliases {

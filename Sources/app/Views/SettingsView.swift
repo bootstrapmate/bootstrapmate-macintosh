@@ -3,7 +3,7 @@
 //  BootstrapMate
 //
 //  Main tab with centered app info header and settings below.
-//  management-managed settings display a lock icon and are disabled.
+//  Managed settings display a lock icon and are disabled.
 //
 
 import SwiftUI
