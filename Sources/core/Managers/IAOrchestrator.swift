@@ -121,7 +121,11 @@ public final class IAOrchestrator {
         
         // Close dialog
         DialogManager.shared.close()
-        
+
+        // Post a vendor-neutral run summary to the optional reporting endpoint
+        // before cleanup boots us out. Best-effort; never blocks completion.
+        ReportManager.shared.sendRunSummary(success: success, startTime: startTime)
+
         // Handle reboot
         if reboot && success {
             Logger.info("Reboot requested, triggering in 5 seconds...")

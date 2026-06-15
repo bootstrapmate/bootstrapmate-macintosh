@@ -160,3 +160,16 @@ The following files **should** be committed:
 ## Security
 
 All signing identities, team IDs, and notarization credentials are kept in the `.env` file or environment variables. The repository contains no hardcoded credentials.
+
+## Reporting
+
+When a run completes, BootstrapMate can POST a vendor-neutral JSON run summary to an optional endpoint, turning "did this Mac provision cleanly?" into a fleet-dashboard query. The payload is plain JSON and not tied to any specific backend — any service that accepts a JSON POST (a custom collector, ReportMate, MunkiReport, etc.) can consume it.
+
+Configure via managed preferences (`com.github.bootstrapmate`) or the `--reporting-url` CLI flag:
+
+| Key | Type | Effect |
+|---|---|---|
+| `reportingUrl` | string | Endpoint to POST the run summary to. When unset, no report is sent. |
+| `reportingHeader` | string | Optional `Authorization` header value sent with the POST. |
+
+The POST is best-effort: failures are logged and never block or fail the run. Payload fields include `tool`, `platform`, `version`, `runId`, `success`, `startTime`/`endTime`, `durationSeconds`, `architecture`, `hostname`, `serialNumber`, `manifestUrl`, and per-phase outcomes (`preflight`/`setupassistant`/`userland` with stage, exit code, and any error).

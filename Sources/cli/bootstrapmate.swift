@@ -55,6 +55,9 @@ struct BootstrapMate: ParsableCommand {
     @Option(name: .long, help: "Maximum seconds to wait for network (default: 120).")
     var networkTimeout: Int = 120
 
+    @Option(name: .long, help: "URL to POST a run summary to on completion (vendor-neutral JSON).")
+    var reportingUrl: String?
+
     /// Thread-safe wrapper for network status
     private final class NetworkStatus: @unchecked Sendable {
         var isReady = false
@@ -224,7 +227,8 @@ struct BootstrapMate: ParsableCommand {
             reboot: reboot,
             userscriptOnly: userscript,
             silentMode: silent,
-            verboseMode: verbose
+            verboseMode: verbose,
+            reportingUrl: reportingUrl
         )
         
         // Debug: Show effective configuration

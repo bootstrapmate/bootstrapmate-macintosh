@@ -21,6 +21,10 @@
 				<false/>
 				<key>reboot</key>
 				<false/>
+				<key>reportingUrl</key>
+				<string>https://example.com/bootstrap/report</string>
+				<key>reportingHeader</key>
+				<string>Bearer YOUR_REPORTING_TOKEN_HERE</string>
 			</dict>
 			<key>PayloadDescription</key>
 			<string>Configures BootstrapMate with all available settings. Remove unused keys or set to desired values.</string>

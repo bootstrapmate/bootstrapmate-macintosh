@@ -10,6 +10,51 @@ struct BootstrapMateCoreTests {
     }
 }
 
+// MARK: - ReportManager Tests
+
+@Suite("ReportManager Tests")
+struct ReportManagerTests {
+
+    @Test("Payload contains the core run-summary fields")
+    func payloadShape() {
+        let start = Date(timeIntervalSince1970: 1_000_000)
+        let end = Date(timeIntervalSince1970: 1_000_042)
+        let payload = ReportManager.buildPayload(
+            success: true,
+            startTime: start,
+            endTime: end,
+            version: "2026.06.14.1200",
+            runId: "test-run-id",
+            manifestUrl: "https://example.com/manifest.json",
+            phases: ["Userland": ["stage": "Completed", "exitCode": 0]]
+        )
+
+        #expect(payload["tool"] as? String == "BootstrapMate")
+        #expect(payload["platform"] as? String == "macOS")
+        #expect(payload["success"] as? Bool == true)
+        #expect(payload["runId"] as? String == "test-run-id")
+        #expect(payload["version"] as? String == "2026.06.14.1200")
+        #expect(payload["durationSeconds"] as? Int == 42)
+        #expect(payload["manifestUrl"] as? String == "https://example.com/manifest.json")
+        #expect(payload["phases"] != nil)
+    }
+
+    @Test("Payload serializes to JSON")
+    func payloadSerializes() throws {
+        let payload = ReportManager.buildPayload(
+            success: false,
+            startTime: Date(timeIntervalSince1970: 0),
+            endTime: Date(timeIntervalSince1970: 5),
+            version: "v",
+            runId: "r",
+            manifestUrl: "",
+            phases: [:]
+        )
+        let data = try JSONSerialization.data(withJSONObject: payload)
+        #expect(data.isEmpty == false)
+    }
+}
+
 // MARK: - ManifestDecoder Tests
 
 @Suite("ManifestDecoder Tests")

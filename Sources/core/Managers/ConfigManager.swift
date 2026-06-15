@@ -23,6 +23,9 @@ public struct BootstrapMateConfig {
     public var customInstallPath: String?
     public var daemonIdentifier: String
     public var agentIdentifier: String
+    // Reporting: vendor-neutral run-summary POST
+    public var reportingUrl: String?
+    public var reportingHeader: String?
     // Dialog / UI settings
     public var enableDialog: Bool
     public var dialogTitle: String
@@ -43,6 +46,8 @@ public struct BootstrapMateConfig {
         customInstallPath: String? = nil,
         daemonIdentifier: String = BootstrapMateConstants.daemonIdentifier,
         agentIdentifier: String = BootstrapMateConstants.daemonIdentifier,
+        reportingUrl: String? = nil,
+        reportingHeader: String? = nil,
         enableDialog: Bool = true,
         dialogTitle: String = "Setting up your Mac",
         dialogMessage: String = "Please wait while we configure your device...",
@@ -61,6 +66,8 @@ public struct BootstrapMateConfig {
         self.customInstallPath = customInstallPath
         self.daemonIdentifier = daemonIdentifier
         self.agentIdentifier = agentIdentifier
+        self.reportingUrl = reportingUrl
+        self.reportingHeader = reportingHeader
         self.enableDialog = enableDialog
         self.dialogTitle = dialogTitle
         self.dialogMessage = dialogMessage
@@ -107,7 +114,8 @@ public final class ConfigManager {
         reboot: Bool? = nil,
         userscriptOnly: Bool? = nil,
         silentMode: Bool? = nil,
-        verboseMode: Bool? = nil
+        verboseMode: Bool? = nil,
+        reportingUrl: String? = nil
     ) {
         if let url = jsonUrl, !url.isEmpty {
             config.jsonUrl = url
@@ -147,6 +155,11 @@ public final class ConfigManager {
         if let verbose = verboseMode {
             config.verboseMode = verbose
             Logger.debug("CLI override: verboseMode = \(verbose)")
+        }
+
+        if let reporting = reportingUrl, !reporting.isEmpty {
+            config.reportingUrl = reporting
+            Logger.debug("CLI override: reportingUrl = \(reporting)")
         }
     }
     
@@ -348,6 +361,22 @@ public final class ConfigManager {
         } else if let value = CFPreferencesCopyAppValue("laidentifier" as CFString, cfDomain) as? String {
             config.agentIdentifier = value
         }
+
+        // Reporting: vendor-neutral run-summary POST endpoint
+        let reportingUrlKeys = ["reportingUrl", "ReportingUrl", "ReportURL", "reportingURL"]
+        for key in reportingUrlKeys {
+            if let value = CFPreferencesCopyAppValue(key as CFString, cfDomain) as? String, !value.isEmpty {
+                config.reportingUrl = value
+                break
+            }
+        }
+        let reportingHeaderKeys = ["reportingHeader", "ReportingHeader", "ReportingAuthorizationHeader"]
+        for key in reportingHeaderKeys {
+            if let value = CFPreferencesCopyAppValue(key as CFString, cfDomain) as? String, !value.isEmpty {
+                config.reportingHeader = value
+                break
+            }
+        }
         
         // Dialog / UI settings
         if let value = CFPreferencesCopyAppValue("enableDialog" as CFString, cfDomain) as? Bool {
@@ -431,6 +460,7 @@ public final class ConfigManager {
         Logger.debug("  silentMode: \(config.silentMode)")
         Logger.debug("  verboseMode: \(config.verboseMode)")
         Logger.debug("  installPath: \(getInstallPath())")
+        Logger.debug("  reportingUrl: \(config.reportingUrl ?? "not set")")
         Logger.debug("  daemonIdentifier: \(config.daemonIdentifier)")
         Logger.debug("  enableDialog: \(config.enableDialog)")
         Logger.debug("  dialogTitle: \(config.dialogTitle)")
