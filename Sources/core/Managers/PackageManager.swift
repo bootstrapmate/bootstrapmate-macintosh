@@ -58,7 +58,15 @@ public final class PackageManager {
         let task = Process()
         task.launchPath = "/usr/sbin/installer"
         task.arguments = ["-pkg", pkgPath, "-target", "/"]
-        task.launch()
+        // Use try run() so a launch failure (e.g. installer missing/not
+        // executable) surfaces as a handled error instead of an uncaught
+        // Objective-C exception that would crash provisioning.
+        do {
+            try task.run()
+        } catch {
+            Logger.log("Failed to launch installer for \(pkgPath): \(error.localizedDescription)")
+            return false
+        }
         task.waitUntilExit()
         if task.terminationStatus == 0 {
             Logger.log("Installed \(pkgPath) successfully.")

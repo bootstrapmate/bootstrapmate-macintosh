@@ -54,9 +54,14 @@ public final class SignatureVerifier {
 
         let foundTeamID = Self.parseTeamID(from: output)
 
-        if let expected = expectedTeamID, !expected.isEmpty {
-            guard let found = foundTeamID, found == expected else {
-                return .teamIDMismatch(found: foundTeamID, expected: expected)
+        if let expected = expectedTeamID {
+            // Normalize both sides: Team IDs are uppercase alphanumerics, but a
+            // value typed into MDM/CLI may carry stray whitespace or lowercase.
+            let normalizedExpected = expected.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+            if !normalizedExpected.isEmpty {
+                guard let found = foundTeamID?.uppercased(), found == normalizedExpected else {
+                    return .teamIDMismatch(found: foundTeamID, expected: normalizedExpected)
+                }
             }
         }
 
