@@ -20,7 +20,8 @@ public final class ReportManager {
     private init() {}
 
     /// Build and POST the run summary to `config.reportingUrl`, if configured.
-    /// Best-effort: failures are logged and never abort the run.
+    /// Best-effort: the POST is bounded by a short timeout, and any failure is
+    /// logged but never fails the run.
     public func sendRunSummary(success: Bool, startTime: Date, endTime: Date = Date()) {
         let config = ConfigManager.shared.config
         guard let urlString = config.reportingUrl, !urlString.isEmpty,
@@ -43,8 +44,18 @@ public final class ReportManager {
             return
         }
 
-        Logger.info("Posting run summary to reporting endpoint: \(urlString)")
+        Logger.info("Posting run summary to reporting endpoint: \(Self.redactedEndpoint(url))")
         postJSON(body, to: url, authHeader: config.reportingHeader)
+    }
+
+    /// Scheme + host + path only — drops userinfo and query so tokens that may
+    /// be embedded in the URL never reach the logs.
+    private static func redactedEndpoint(_ url: URL) -> String {
+        var parts = ""
+        if let scheme = url.scheme { parts += "\(scheme)://" }
+        parts += url.host ?? ""
+        parts += url.path
+        return parts.isEmpty ? "configured endpoint" : parts
     }
 
     /// Assemble the vendor-neutral summary dictionary. Pure function for testing.
@@ -86,12 +97,27 @@ public final class ReportManager {
             phases[phase.rawValue] = [
                 "stage": status.stage.rawValue,
                 "exitCode": status.exitCode,
-                "startTime": status.startTime,
-                "completionTime": status.completionTime,
+                "startTime": Self.isoFromStatusTimestamp(status.startTime),
+                "completionTime": Self.isoFromStatusTimestamp(status.completionTime),
                 "lastError": status.lastError
             ]
         }
         return phases
+    }
+
+    /// StatusManager persists timestamps as "yyyy-MM-dd HH:mm:ss"; re-emit them
+    /// as ISO-8601 so the whole payload uses one timestamp format. Falls back to
+    /// the original string if it can't be parsed (e.g. empty).
+    private static let statusDateFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        f.locale = Locale(identifier: "en_US_POSIX")
+        return f
+    }()
+
+    private static func isoFromStatusTimestamp(_ value: String) -> String {
+        guard !value.isEmpty, let date = statusDateFormatter.date(from: value) else { return value }
+        return ISO8601DateFormatter().string(from: date)
     }
 
     private func postJSON(_ body: Data, to url: URL, authHeader: String?) {
@@ -103,7 +129,7 @@ public final class ReportManager {
             request.setValue(authHeader, forHTTPHeaderField: "Authorization")
         }
         request.httpBody = body
-        request.timeoutInterval = 30
+        request.timeoutInterval = 15
 
         let semaphore = DispatchSemaphore(value: 0)
         let task = URLSession.shared.dataTask(with: request) { _, response, error in
@@ -121,7 +147,9 @@ public final class ReportManager {
             }
         }
         task.resume()
-        _ = semaphore.wait(timeout: .now() + 35)
+        // Bounded wait: the CLI exits right after this returns, so we must let
+        // the POST finish — but never linger beyond the request timeout.
+        _ = semaphore.wait(timeout: .now() + 20)
     }
 
     private static func currentArchitecture() -> String {

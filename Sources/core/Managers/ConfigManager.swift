@@ -159,7 +159,7 @@ public final class ConfigManager {
 
         if let reporting = reportingUrl, !reporting.isEmpty {
             config.reportingUrl = reporting
-            Logger.debug("CLI override: reportingUrl = \(reporting)")
+            Logger.debug("CLI override: reportingUrl set")
         }
     }
     
@@ -460,7 +460,7 @@ public final class ConfigManager {
         Logger.debug("  silentMode: \(config.silentMode)")
         Logger.debug("  verboseMode: \(config.verboseMode)")
         Logger.debug("  installPath: \(getInstallPath())")
-        Logger.debug("  reportingUrl: \(config.reportingUrl ?? "not set")")
+        Logger.debug("  reportingUrl: \(config.reportingUrl != nil ? "set" : "not set")")
         Logger.debug("  daemonIdentifier: \(config.daemonIdentifier)")
         Logger.debug("  enableDialog: \(config.enableDialog)")
         Logger.debug("  dialogTitle: \(config.dialogTitle)")

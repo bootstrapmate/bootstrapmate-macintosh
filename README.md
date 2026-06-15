@@ -172,4 +172,4 @@ Configure via managed preferences (`com.github.bootstrapmate`) or the `--reporti
 | `reportingUrl` | string | Endpoint to POST the run summary to. When unset, no report is sent. |
 | `reportingHeader` | string | Optional `Authorization` header value sent with the POST. |
 
-The POST is best-effort: failures are logged and never block or fail the run. Payload fields include `tool`, `platform`, `version`, `runId`, `success`, `startTime`/`endTime`, `durationSeconds`, `architecture`, `hostname`, `serialNumber`, `manifestUrl`, and per-phase outcomes (`preflight`/`setupassistant`/`userland` with stage, exit code, and any error).
+The POST is best-effort: it is bounded by a short timeout and never fails the run. Payload fields include `tool`, `platform`, `version`, `runId`, `success`, `startTime`/`endTime`, `durationSeconds`, `architecture`, `hostname`, `serialNumber`, `manifestUrl`, and per-phase outcomes (keyed `Preflight`/`SetupAssistant`/`Userland`, each with stage, exit code, and any error).
