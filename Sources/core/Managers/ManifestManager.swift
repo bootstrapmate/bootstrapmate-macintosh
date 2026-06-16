@@ -229,4 +229,8 @@ public struct ManifestItem: Codable {
     public let skipIf: String?
     public let followRedirects: Bool?
     public let donotwait: Bool?
+    /// Per-item override of the expected signing Team ID (falls back to config).
+    public let expectedTeamID: String?
+    /// Per-item override allowing an unsigned/untrusted package (falls back to config).
+    public let allowUnsigned: Bool?
 }
