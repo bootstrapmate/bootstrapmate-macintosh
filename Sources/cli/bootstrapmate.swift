@@ -55,6 +55,8 @@ struct BootstrapMate: ParsableCommand {
     @Option(name: .long, help: "Maximum seconds to wait for network (default: 120).")
     var networkTimeout: Int = 120
 
+    @Option(name: .long, help: "URL to POST a run summary to on completion (vendor-neutral JSON).")
+    var reportingUrl: String?
     @Flag(name: .long, help: "Skip installer-package signature verification (NOT recommended).")
     var noVerifySignature: Bool = false
 
@@ -234,6 +236,7 @@ struct BootstrapMate: ParsableCommand {
             userscriptOnly: userscript,
             silentMode: silent,
             verboseMode: verbose,
+            reportingUrl: reportingUrl,
             verifyPackageSignatures: noVerifySignature ? false : nil,
             expectedTeamID: expectedTeamId,
             allowUnsigned: allowUnsigned ? true : nil

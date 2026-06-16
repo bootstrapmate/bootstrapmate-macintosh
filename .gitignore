@@ -137,3 +137,5 @@ notarization-*.json
 .Trashes
 .VolumeIcon.icns
 .com.apple.timemachine.donotpresent
+
+cmux.json
