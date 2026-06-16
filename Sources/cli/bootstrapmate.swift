@@ -55,6 +55,15 @@ struct BootstrapMate: ParsableCommand {
     @Option(name: .long, help: "Maximum seconds to wait for network (default: 120).")
     var networkTimeout: Int = 120
 
+    @Flag(name: .long, help: "Skip installer-package signature verification (NOT recommended).")
+    var noVerifySignature: Bool = false
+
+    @Option(name: .long, help: "Require installer packages to be signed by this Apple Team ID.")
+    var expectedTeamId: String?
+
+    @Flag(name: .long, help: "Allow unsigned/untrusted installer packages to install.")
+    var allowUnsigned: Bool = false
+
     /// Thread-safe wrapper for network status
     private final class NetworkStatus: @unchecked Sendable {
         var isReady = false
@@ -224,7 +233,10 @@ struct BootstrapMate: ParsableCommand {
             reboot: reboot,
             userscriptOnly: userscript,
             silentMode: silent,
-            verboseMode: verbose
+            verboseMode: verbose,
+            verifyPackageSignatures: noVerifySignature ? false : nil,
+            expectedTeamID: expectedTeamId,
+            allowUnsigned: allowUnsigned ? true : nil
         )
         
         // Debug: Show effective configuration

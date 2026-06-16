@@ -160,3 +160,21 @@ The following files **should** be committed:
 ## Security
 
 All signing identities, team IDs, and notarization credentials are kept in the `.env` file or environment variables. The repository contains no hardcoded credentials.
+
+### Package signature verification
+
+Before any installer package is handed to `/usr/sbin/installer` (which runs as root), BootstrapMate verifies its code-signing provenance with `pkgutil --check-signature`. The manifest SHA-256 only proves a download matches the manifest — it does not prove the manifest itself is authentic. The signature gate ensures a package was produced by a trusted Apple Developer ID before it executes.
+
+Behaviour is controlled by managed preferences (MDM profile), CLI flags, or per-item manifest fields.
+
+Managed-preference keys (domain `com.github.bootstrapmate`):
+
+| Key | Type | Default | Effect |
+|---|---|---|---|
+| `verifyPackageSignatures` | bool | `true` | Verify every installer package before running it. |
+| `expectedTeamID` | string | _unset_ | Require packages to be signed by this 10-character Apple Team ID. When unset, any signature trusted by macOS is accepted. |
+| `allowUnsigned` | bool | `false` | Permit unsigned/untrusted packages (logged as a warning). A Team-ID *mismatch* is never permitted, even with this set. |
+
+CLI equivalents: `--no-verify-signature`, `--expected-team-id <TEAMID>`, `--allow-unsigned`.
+
+Per-item manifest overrides (fall back to the global config): `expectedTeamID`, `allowUnsigned`.

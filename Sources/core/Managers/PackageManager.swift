@@ -33,12 +33,40 @@ public final class PackageManager {
     }
 
     @discardableResult
-    public func installPackage(atPath pkgPath: String) -> Bool {
+    public func installPackage(
+        atPath pkgPath: String,
+        expectedTeamID: String? = nil,
+        allowUnsigned: Bool = false,
+        verifySignature: Bool = true
+    ) -> Bool {
+        // Provenance gate: never run an installer as root unless its signature is
+        // trusted (and matches the expected Team ID, when configured). The
+        // manifest hash only proves the bytes match the manifest — not that the
+        // manifest itself is authentic.
+        if verifySignature {
+            let result = SignatureVerifier.shared.verifyPackage(
+                atPath: pkgPath,
+                expectedTeamID: expectedTeamID
+            )
+            if case .deny(let reason) = SignatureVerifier.shared.decide(result, allowUnsigned: allowUnsigned) {
+                Logger.log("Refusing to install \(pkgPath): \(reason)")
+                return false
+            }
+        }
+
         Logger.log("Installing package at \(pkgPath)")
         let task = Process()
         task.launchPath = "/usr/sbin/installer"
         task.arguments = ["-pkg", pkgPath, "-target", "/"]
-        task.launch()
+        // Use try run() so a launch failure (e.g. installer missing/not
+        // executable) surfaces as a handled error instead of an uncaught
+        // Objective-C exception that would crash provisioning.
+        do {
+            try task.run()
+        } catch {
+            Logger.log("Failed to launch installer for \(pkgPath): \(error.localizedDescription)")
+            return false
+        }
         task.waitUntilExit()
         if task.terminationStatus == 0 {
             Logger.log("Installed \(pkgPath) successfully.")
