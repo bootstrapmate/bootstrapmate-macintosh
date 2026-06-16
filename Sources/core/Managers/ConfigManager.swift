@@ -4,7 +4,7 @@
 //
 //  Configuration loader with fallback chain:
 //  1. CLI arguments (highest priority)
-//  2. MDM managed preferences
+//  2. managed preferences
 //  3. Embedded/default values (lowest priority)
 //
 
@@ -83,9 +83,9 @@ public struct BootstrapMateConfig {
 public final class ConfigManager {
     nonisolated(unsafe) public static let shared = ConfigManager()
     
-    // MDM preference domains to check (in order of priority)
-    private let mdmPreferenceDomains = [
-        "com.github.bootstrapmate",           // Primary BootstrapMate domain (MDM profile)
+    // management preference domains to check (in order of priority)
+    private let managementPreferenceDomains = [
+        "com.github.bootstrapmate",           // Primary BootstrapMate domain (management profile)
         "io.macadmins.installapplications"    // InstallApplications compatibility
     ]
     
@@ -102,13 +102,13 @@ public final class ConfigManager {
         // Start with defaults
         self.config = BootstrapMateConfig()
         
-        // Load MDM managed preferences as baseline
+        // Load managed preferences as baseline
         loadManagedPreferences()
     }
     
     // MARK: - Public API
     
-    /// Apply CLI arguments (highest priority - overrides MDM settings)
+    /// Apply CLI arguments (highest priority - overrides management settings)
     public func applyCliArguments(
         jsonUrl: String? = nil,
         headers: String? = nil,
@@ -194,14 +194,14 @@ public final class ConfigManager {
         return config.jsonUrl != nil && !config.jsonUrl!.isEmpty
     }
     
-    /// Reload MDM managed preferences (call when waiting for MDM profile to be applied)
+    /// Reload managed preferences (call when waiting for management profile to be applied)
     /// Returns true if a valid JSON URL was found
     public func reloadManagedPreferences() -> Bool {
         // Clear existing URL to force re-read
         config.jsonUrl = nil
         
         // Try each domain in priority order
-        for domain in mdmPreferenceDomains {
+        for domain in managementPreferenceDomains {
             if loadPreferencesFromDomain(domain) {
                 if config.jsonUrl != nil && !config.jsonUrl!.isEmpty {
                     Logger.info("Loaded managed preferences from: \(domain)")
@@ -210,7 +210,7 @@ public final class ConfigManager {
             }
         }
         
-        // Also check for managed preferences via MDM profile
+        // Also check for managed preferences via management profile
         loadFromManagedAppConfig()
         
         return config.jsonUrl != nil && !config.jsonUrl!.isEmpty
@@ -276,21 +276,21 @@ public final class ConfigManager {
         Logger.debug("Loading managed preferences...")
         
         // Try each domain in priority order
-        for domain in mdmPreferenceDomains {
+        for domain in managementPreferenceDomains {
             if loadPreferencesFromDomain(domain) {
                 Logger.info("Loaded managed preferences from: \(domain)")
                 return
             }
         }
         
-        // Also check for managed preferences via MDM profile
+        // Also check for managed preferences via management profile
         loadFromManagedAppConfig()
         
-        Logger.debug("No MDM managed preferences found, using defaults")
+        Logger.debug("No managed preferences found, using defaults")
     }
     
     private func loadPreferencesFromDomain(_ domain: String) -> Bool {
-        // First try CFPreferences (works better for MDM-pushed preferences)
+        // First try CFPreferences (works better for management-pushed preferences)
         let cfDomain = domain as CFString
         
         // Check for URL key (various names)
@@ -432,7 +432,7 @@ public final class ConfigManager {
     }
     
     private func loadFromManagedAppConfig() {
-        // Check for MDM-deployed configuration profile
+        // Check for management-deployed configuration profile
         // This handles the case where config is delivered via custom configuration profile
         let configDomains = [
             "com.github.bootstrapmate"
