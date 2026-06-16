@@ -3,7 +3,7 @@
 //  BootstrapMate
 //
 //  Manages all configuration settings for the GUI.
-//  Reads current values from ConfigManager and MDM status from MDMDetector.
+//  Reads current values from ConfigManager and management status from ManagementDetector.
 //  Writes changes via XPC helper for system-level persistence.
 //
 
@@ -127,11 +127,11 @@ final class SettingsViewModel {
         manifestPreviewState = .idle
     }
 
-    // MARK: - MDM Status
+    // MARK: - Management
 
     private(set) var managedKeys: Set<String> = []
 
-    func isMDMManaged(_ key: String) -> Bool {
+    func isManaged(_ key: String) -> Bool {
         managedKeys.contains(key)
     }
 
@@ -143,7 +143,7 @@ final class SettingsViewModel {
 
         ConfigManager.shared.reloadPreferences()
         let config = ConfigManager.shared.config
-        let detector = MDMDetector.shared
+        let detector = ManagementDetector.shared
 
         managedKeys = detector.allManagedKeys()
 
@@ -169,10 +169,10 @@ final class SettingsViewModel {
 
     // MARK: - Saving
 
-    /// Saves all non-MDM-managed settings via the XPC helper.
+    /// Saves all non-managed settings via the XPC helper.
     func save(using client: XPCClient) {
         func saveString(_ key: String, _ value: String) {
-            guard !isMDMManaged(key) else { return }
+            guard !isManaged(key) else { return }
             if value.isEmpty {
                 client.removePreference(key: key)
             } else {
@@ -181,12 +181,12 @@ final class SettingsViewModel {
         }
 
         func saveBool(_ key: String, _ value: Bool) {
-            guard !isMDMManaged(key) else { return }
+            guard !isManaged(key) else { return }
             client.setBoolPreference(key: key, value: value)
         }
 
         func saveInt(_ key: String, _ value: Int) {
-            guard !isMDMManaged(key) else { return }
+            guard !isManaged(key) else { return }
             client.setIntPreference(key: key, value: value)
         }
 

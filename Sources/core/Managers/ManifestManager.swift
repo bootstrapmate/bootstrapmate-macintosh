@@ -45,8 +45,8 @@ public final class ManifestManager {
         dryRun = enable
     }
 
-    public func loadFromMDMOrLocal() {
-        Logger.log("Loading manifest from MDM or local fallback.")
+    public func loadFromManagementOrLocal() {
+        Logger.log("Loading manifest from management or local fallback.")
         // TODO: Implement managed preferences fallback handling.
     }
 

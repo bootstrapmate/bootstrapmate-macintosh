@@ -3,7 +3,7 @@
 //  BootstrapMate
 //
 //  CLI entry point for BootstrapMate - Swift deployment utility for ADE-driven macOS setup.
-//  Supports MDM managed preferences, CLI arguments, and graceful fallbacks.
+//  Supports managed preferences, CLI arguments, and graceful fallbacks.
 //
 
 import Foundation
@@ -192,39 +192,39 @@ struct BootstrapMate: ParsableCommand {
             }
         }
         
-        // Wait for MDM configuration profile to be applied (during Setup Assistant)
-        // The MDM profile with url preference may not be applied immediately at boot
-        let mdmTimeout = 300 // 5 minutes
+        // Wait for management configuration profile to be applied (during Setup Assistant)
+        // The management profile with url preference may not be applied immediately at boot
+        let managementTimeout = 300 // 5 minutes
         if jsonurl == nil || jsonurl!.isEmpty {
-            // No CLI URL provided, we need MDM config
+            // No CLI URL provided, we need management config
             if !ConfigManager.shared.isValid() {
-                Logger.info("Waiting for MDM configuration profile (timeout: \(mdmTimeout)s)...")
-                earlyLog("Waiting for MDM config...")
+                Logger.info("Waiting for management configuration profile (timeout: \(managementTimeout)s)...")
+                earlyLog("Waiting for management config...")
                 
-                for i in 1...mdmTimeout {
-                    // Reload preferences from MDM domains
+                for i in 1...managementTimeout {
+                    // Reload preferences from management domains
                     if ConfigManager.shared.reloadManagedPreferences() {
-                        Logger.success("MDM configuration received after \(i)s")
-                        earlyLog("MDM config received after \(i)s")
+                        Logger.success("Management configuration received after \(i)s")
+                        earlyLog("Management config received after \(i)s")
                         break
                     }
                     
                     // Log progress every 30 seconds
                     if i % 30 == 0 {
-                        Logger.debug("Still waiting for MDM config... (\(i)s elapsed)")
+                        Logger.debug("Still waiting for management config... (\(i)s elapsed)")
                     }
                     
                     Thread.sleep(forTimeInterval: 1)
                     
-                    if i == mdmTimeout {
-                        Logger.warning("MDM configuration not received within \(mdmTimeout)s")
-                        earlyLog("MDM config timeout after \(mdmTimeout)s")
+                    if i == managementTimeout {
+                        Logger.warning("Management configuration not received within \(managementTimeout)s")
+                        earlyLog("Management config timeout after \(managementTimeout)s")
                     }
                 }
             }
         }
         
-        // Apply CLI arguments to ConfigManager (overrides MDM settings)
+        // Apply CLI arguments to ConfigManager (overrides management settings)
         ConfigManager.shared.applyCliArguments(
             jsonUrl: jsonurl,
             headers: headers,
@@ -268,15 +268,15 @@ struct BootstrapMate: ParsableCommand {
             }
         } else {
             // No URL provided - check if we have embedded config or should fail
-            Logger.warning("No JSON URL provided via CLI or MDM")
+            Logger.warning("No JSON URL provided via CLI or managed preferences")
             
             // Try to fetch from ConfigManager's external config
             if ConfigManager.shared.fetchExternalConfig() {
-                Logger.info("Loaded external config from MDM preferences")
+                Logger.info("Loaded external config from management preferences")
                 // Convert BootstrapConfig to manifest loading
                 // For now, we require jsonUrl
             } else {
-                Logger.error("No manifest URL configured. Use --jsonurl or configure via MDM profile.")
+                Logger.error("No manifest URL configured. Use --jsonurl or configure via management profile.")
                 Foundation.exit(1)
             }
         }
