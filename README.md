@@ -173,3 +173,20 @@ Configure via managed preferences (`com.github.bootstrapmate`) or the `--reporti
 | `reportingHeader` | string | Optional `Authorization` header value sent with the POST. |
 
 The POST is best-effort: it is bounded by a short timeout and never fails the run. Payload fields include `tool`, `platform`, `version`, `runId`, `success`, `startTime`/`endTime`, `durationSeconds`, `architecture`, `hostname`, `serialNumber`, `manifestUrl`, and per-phase outcomes (keyed `Preflight`/`SetupAssistant`/`Userland`, each with stage, exit code, and any error).
+### Package signature verification
+
+Before any installer package is handed to `/usr/sbin/installer` (which runs as root), BootstrapMate verifies its code-signing provenance with `pkgutil --check-signature`. The manifest SHA-256 only proves a download matches the manifest — it does not prove the manifest itself is authentic. The signature gate ensures a package was produced by a trusted Apple Developer ID before it executes.
+
+Behaviour is controlled by managed preferences (MDM profile), CLI flags, or per-item manifest fields.
+
+Managed-preference keys (domain `com.github.bootstrapmate`):
+
+| Key | Type | Default | Effect |
+|---|---|---|---|
+| `verifyPackageSignatures` | bool | `true` | Verify every installer package before running it. |
+| `expectedTeamID` | string | _unset_ | Require packages to be signed by this 10-character Apple Team ID. When unset, any signature trusted by macOS is accepted. |
+| `allowUnsigned` | bool | `false` | Permit unsigned/untrusted packages (logged as a warning). A Team-ID *mismatch* is never permitted, even with this set. |
+
+CLI equivalents: `--no-verify-signature`, `--expected-team-id <TEAMID>`, `--allow-unsigned`.
+
+Per-item manifest overrides (fall back to the global config): `expectedTeamID`, `allowUnsigned`.

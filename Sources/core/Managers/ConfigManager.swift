@@ -4,7 +4,7 @@
 //
 //  Configuration loader with fallback chain:
 //  1. CLI arguments (highest priority)
-//  2. MDM managed preferences
+//  2. managed preferences
 //  3. Embedded/default values (lowest priority)
 //
 
@@ -26,6 +26,10 @@ public struct BootstrapMateConfig {
     // Reporting: vendor-neutral run-summary POST
     public var reportingUrl: String?
     public var reportingHeader: String?
+    // Security: package signature verification
+    public var verifyPackageSignatures: Bool
+    public var expectedTeamID: String?
+    public var allowUnsigned: Bool
     // Dialog / UI settings
     public var enableDialog: Bool
     public var dialogTitle: String
@@ -48,6 +52,9 @@ public struct BootstrapMateConfig {
         agentIdentifier: String = BootstrapMateConstants.daemonIdentifier,
         reportingUrl: String? = nil,
         reportingHeader: String? = nil,
+        verifyPackageSignatures: Bool = true,
+        expectedTeamID: String? = nil,
+        allowUnsigned: Bool = false,
         enableDialog: Bool = true,
         dialogTitle: String = "Setting up your Mac",
         dialogMessage: String = "Please wait while we configure your device...",
@@ -68,6 +75,9 @@ public struct BootstrapMateConfig {
         self.agentIdentifier = agentIdentifier
         self.reportingUrl = reportingUrl
         self.reportingHeader = reportingHeader
+        self.verifyPackageSignatures = verifyPackageSignatures
+        self.expectedTeamID = expectedTeamID
+        self.allowUnsigned = allowUnsigned
         self.enableDialog = enableDialog
         self.dialogTitle = dialogTitle
         self.dialogMessage = dialogMessage
@@ -80,9 +90,9 @@ public struct BootstrapMateConfig {
 public final class ConfigManager {
     nonisolated(unsafe) public static let shared = ConfigManager()
     
-    // MDM preference domains to check (in order of priority)
-    private let mdmPreferenceDomains = [
-        "com.github.bootstrapmate",           // Primary BootstrapMate domain (MDM profile)
+    // management preference domains to check (in order of priority)
+    private let managementPreferenceDomains = [
+        "com.github.bootstrapmate",           // Primary BootstrapMate domain (management profile)
         "io.macadmins.installapplications"    // InstallApplications compatibility
     ]
     
@@ -99,13 +109,13 @@ public final class ConfigManager {
         // Start with defaults
         self.config = BootstrapMateConfig()
         
-        // Load MDM managed preferences as baseline
+        // Load managed preferences as baseline
         loadManagedPreferences()
     }
     
     // MARK: - Public API
     
-    /// Apply CLI arguments (highest priority - overrides MDM settings)
+    /// Apply CLI arguments (highest priority - overrides management settings)
     public func applyCliArguments(
         jsonUrl: String? = nil,
         headers: String? = nil,
@@ -115,7 +125,10 @@ public final class ConfigManager {
         userscriptOnly: Bool? = nil,
         silentMode: Bool? = nil,
         verboseMode: Bool? = nil,
-        reportingUrl: String? = nil
+        reportingUrl: String? = nil,
+        verifyPackageSignatures: Bool? = nil,
+        expectedTeamID: String? = nil,
+        allowUnsigned: Bool? = nil
     ) {
         if let url = jsonUrl, !url.isEmpty {
             config.jsonUrl = url
@@ -161,6 +174,21 @@ public final class ConfigManager {
             config.reportingUrl = reporting
             Logger.debug("CLI override: reportingUrl set")
         }
+
+        if let verify = verifyPackageSignatures {
+            config.verifyPackageSignatures = verify
+            Logger.debug("CLI override: verifyPackageSignatures = \(verify)")
+        }
+
+        if let team = expectedTeamID, !team.isEmpty {
+            config.expectedTeamID = team
+            Logger.debug("CLI override: expectedTeamID = \(team)")
+        }
+
+        if let allow = allowUnsigned {
+            config.allowUnsigned = allow
+            Logger.debug("CLI override: allowUnsigned = \(allow)")
+        }
     }
     
     /// Get the effective JSON URL (from config or fallback)
@@ -179,14 +207,14 @@ public final class ConfigManager {
         return config.jsonUrl != nil && !config.jsonUrl!.isEmpty
     }
     
-    /// Reload MDM managed preferences (call when waiting for MDM profile to be applied)
+    /// Reload managed preferences (call when waiting for management profile to be applied)
     /// Returns true if a valid JSON URL was found
     public func reloadManagedPreferences() -> Bool {
         // Clear existing URL to force re-read
         config.jsonUrl = nil
         
         // Try each domain in priority order
-        for domain in mdmPreferenceDomains {
+        for domain in managementPreferenceDomains {
             if loadPreferencesFromDomain(domain) {
                 if config.jsonUrl != nil && !config.jsonUrl!.isEmpty {
                     Logger.info("Loaded managed preferences from: \(domain)")
@@ -195,7 +223,7 @@ public final class ConfigManager {
             }
         }
         
-        // Also check for managed preferences via MDM profile
+        // Also check for managed preferences via management profile
         loadFromManagedAppConfig()
         
         return config.jsonUrl != nil && !config.jsonUrl!.isEmpty
@@ -261,21 +289,21 @@ public final class ConfigManager {
         Logger.debug("Loading managed preferences...")
         
         // Try each domain in priority order
-        for domain in mdmPreferenceDomains {
+        for domain in managementPreferenceDomains {
             if loadPreferencesFromDomain(domain) {
                 Logger.info("Loaded managed preferences from: \(domain)")
                 return
             }
         }
         
-        // Also check for managed preferences via MDM profile
+        // Also check for managed preferences via management profile
         loadFromManagedAppConfig()
         
-        Logger.debug("No MDM managed preferences found, using defaults")
+        Logger.debug("No managed preferences found, using defaults")
     }
     
     private func loadPreferencesFromDomain(_ domain: String) -> Bool {
-        // First try CFPreferences (works better for MDM-pushed preferences)
+        // First try CFPreferences (works better for management-pushed preferences)
         let cfDomain = domain as CFString
         
         // Check for URL key (various names)
@@ -378,6 +406,29 @@ public final class ConfigManager {
             }
         }
         
+        // Security: package signature verification
+        let verifyKeys = ["verifyPackageSignatures", "VerifyPackageSignatures", "verifySignatures"]
+        for key in verifyKeys {
+            if let value = CFPreferencesCopyAppValue(key as CFString, cfDomain) as? Bool {
+                config.verifyPackageSignatures = value
+                break
+            }
+        }
+        let teamIDKeys = ["expectedTeamID", "ExpectedTeamID", "teamID", "TeamID"]
+        for key in teamIDKeys {
+            if let value = CFPreferencesCopyAppValue(key as CFString, cfDomain) as? String, !value.isEmpty {
+                config.expectedTeamID = value
+                break
+            }
+        }
+        let allowUnsignedKeys = ["allowUnsigned", "AllowUnsigned"]
+        for key in allowUnsignedKeys {
+            if let value = CFPreferencesCopyAppValue(key as CFString, cfDomain) as? Bool {
+                config.allowUnsigned = value
+                break
+            }
+        }
+
         // Dialog / UI settings
         if let value = CFPreferencesCopyAppValue("enableDialog" as CFString, cfDomain) as? Bool {
             config.enableDialog = value
@@ -410,7 +461,7 @@ public final class ConfigManager {
     }
     
     private func loadFromManagedAppConfig() {
-        // Check for MDM-deployed configuration profile
+        // Check for management-deployed configuration profile
         // This handles the case where config is delivered via custom configuration profile
         let configDomains = [
             "com.github.bootstrapmate"
@@ -461,6 +512,9 @@ public final class ConfigManager {
         Logger.debug("  verboseMode: \(config.verboseMode)")
         Logger.debug("  installPath: \(getInstallPath())")
         Logger.debug("  reportingUrl: \(config.reportingUrl != nil ? "set" : "not set")")
+        Logger.debug("  verifyPackageSignatures: \(config.verifyPackageSignatures)")
+        Logger.debug("  expectedTeamID: \(config.expectedTeamID ?? "any trusted")")
+        Logger.debug("  allowUnsigned: \(config.allowUnsigned)")
         Logger.debug("  daemonIdentifier: \(config.daemonIdentifier)")
         Logger.debug("  enableDialog: \(config.enableDialog)")
         Logger.debug("  dialogTitle: \(config.dialogTitle)")

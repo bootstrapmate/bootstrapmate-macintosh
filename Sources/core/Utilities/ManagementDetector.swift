@@ -1,18 +1,18 @@
 //
-//  MDMDetector.swift
+//  ManagementDetector.swift
 //  BootstrapMate
 //
-//  Detects which preferences are managed by MDM configuration profiles
+//  Detects which preferences are managed by configuration profiles
 //  vs. set locally. Used by the GUI to show lock indicators.
 //
 
 import Foundation
 
-public final class MDMDetector: Sendable {
+public final class ManagementDetector: Sendable {
 
-    public static let shared = MDMDetector()
+    public static let shared = ManagementDetector()
 
-    /// Preference domains checked for MDM management, in priority order.
+    /// Preference domains checked for management, in priority order.
     private let managedDomains = [
         "com.github.bootstrapmate",
         "io.macadmins.installapplications"
@@ -36,7 +36,7 @@ public final class MDMDetector: Sendable {
     // MARK: - Public API
 
     /// Returns true if the canonical key is present in any managed preferences plist.
-    public func isManagedByMDM(key: String) -> Bool {
+    public func isManaged(key: String) -> Bool {
         let keysToCheck = Self.keyAliases[key] ?? [key]
         for domain in managedDomains {
             for plistPath in managedPlistPaths(for: domain) {
@@ -49,7 +49,7 @@ public final class MDMDetector: Sendable {
         return false
     }
 
-    /// Returns the MDM-managed value for a canonical key, or nil.
+    /// Returns the managed value for a canonical key, or nil.
     public func managedValue(forKey key: String) -> Any? {
         let keysToCheck = Self.keyAliases[key] ?? [key]
         for domain in managedDomains {
@@ -63,7 +63,7 @@ public final class MDMDetector: Sendable {
         return nil
     }
 
-    /// Returns the set of canonical keys that are MDM-managed.
+    /// Returns the set of canonical keys that are managed.
     public func allManagedKeys() -> Set<String> {
         var result = Set<String>()
         for (canonical, aliases) in Self.keyAliases {

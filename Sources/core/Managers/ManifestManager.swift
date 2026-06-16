@@ -45,8 +45,8 @@ public final class ManifestManager {
         dryRun = enable
     }
 
-    public func loadFromMDMOrLocal() {
-        Logger.log("Loading manifest from MDM or local fallback.")
+    public func loadFromManagementOrLocal() {
+        Logger.log("Loading manifest from management or local fallback.")
         // TODO: Implement managed preferences fallback handling.
     }
 
@@ -229,4 +229,8 @@ public struct ManifestItem: Codable {
     public let skipIf: String?
     public let followRedirects: Bool?
     public let donotwait: Bool?
+    /// Per-item override of the expected signing Team ID (falls back to config).
+    public let expectedTeamID: String?
+    /// Per-item override allowing an unsigned/untrusted package (falls back to config).
+    public let allowUnsigned: Bool?
 }

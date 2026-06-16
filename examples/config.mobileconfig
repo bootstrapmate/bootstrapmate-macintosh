@@ -25,6 +25,12 @@
 				<string>https://example.com/bootstrap/report</string>
 				<key>reportingHeader</key>
 				<string>Bearer YOUR_REPORTING_TOKEN_HERE</string>
+				<key>verifyPackageSignatures</key>
+				<true/>
+				<key>expectedTeamID</key>
+				<string>AB12CD34EF</string>
+				<key>allowUnsigned</key>
+				<false/>
 			</dict>
 			<key>PayloadDescription</key>
 			<string>Configures BootstrapMate with all available settings. Remove unused keys or set to desired values.</string>
