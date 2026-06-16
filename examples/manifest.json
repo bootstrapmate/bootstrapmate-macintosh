@@ -1,0 +1,69 @@
+{
+  "preflight": [
+    {
+      "file": "/Library/Application Support/BootstrapMate/preflight.sh",
+      "hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "url": "https://example.com/bootstrap/scripts/preflight.sh",
+      "name": "Preflight Check",
+      "type": "rootscript",
+      "retries": 3,
+      "retrywait": 5
+    }
+  ],
+  "setupassistant": [
+    {
+      "file": "/Library/Application Support/BootstrapMate/munkitools.pkg",
+      "hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "url": "https://example.com/bootstrap/packages/munkitools-6.0.0.pkg",
+      "name": "Munki Tools",
+      "type": "package",
+      "packageid": "com.googlecode.munki.core",
+      "version": "6.0.0",
+      "retries": 3,
+      "retrywait": 10,
+      "followRedirects": true
+    },
+    {
+      "file": "/Library/Application Support/BootstrapMate/munkitools-admin.pkg",
+      "hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "url": "https://example.com/bootstrap/packages/munkitools-admin-6.0.0.pkg",
+      "name": "Munki Admin Tools",
+      "type": "package",
+      "packageid": "com.googlecode.munki.admin",
+      "version": "6.0.0",
+      "retries": 3,
+      "retrywait": 10,
+      "skipIf": "arm64"
+    },
+    {
+      "file": "/Library/Application Support/BootstrapMate/configure-munki.sh",
+      "hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "url": "https://example.com/bootstrap/scripts/configure-munki.sh",
+      "name": "Configure Munki",
+      "type": "rootscript",
+      "retries": 2,
+      "retrywait": 5
+    }
+  ],
+  "userland": [
+    {
+      "file": "/Library/Application Support/BootstrapMate/dock-setup.sh",
+      "hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "url": "https://example.com/bootstrap/scripts/dock-setup.sh",
+      "name": "Configure Dock",
+      "type": "userscript",
+      "retries": 2,
+      "retrywait": 5
+    },
+    {
+      "file": "/Library/Application Support/BootstrapMate/user-defaults.sh",
+      "hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "url": "https://example.com/bootstrap/scripts/user-defaults.sh",
+      "name": "Apply User Defaults",
+      "type": "userscript",
+      "retries": 2,
+      "retrywait": 5,
+      "donotwait": true
+    }
+  ]
+}

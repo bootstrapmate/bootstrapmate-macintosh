@@ -4,31 +4,25 @@ import PackageDescription
 let package = Package(
     name: "BootstrapMate",
     platforms: [
-        .macOS(.v13)
+        .macOS(.v15)
     ],
     products: [
         .executable(name: "bootstrapmate", targets: ["BootstrapMateCLI"]),
+        .executable(name: "BootstrapMateApp", targets: ["BootstrapMateApp"]),
+        .executable(name: "BootstrapMateHelper", targets: ["BootstrapMateHelper"]),
         .library(name: "BootstrapMateCore", targets: ["BootstrapMateCore"])
     ],
     dependencies: [
-        .package(url: "https://github.com/apple/swift-argument-parser.git", from: "1.2.0")
+        .package(url: "https://github.com/apple/swift-argument-parser.git", from: "1.2.0"),
+        .package(url: "https://github.com/jpsim/Yams.git", from: "5.0.0")
     ],
     targets: [
         .target(
             name: "BootstrapMateCore",
-            path: ".",
-            exclude: [
-                "cli",
-                "Resources",
-                "scripts",
-                "examples",
-                "LICENSE",
-                "README.md"
+            dependencies: [
+                .product(name: "Yams", package: "Yams")
             ],
-            sources: [
-                "Managers",
-                "Utilities"
-            ]
+            path: "Sources/core"
         ),
         .executableTarget(
             name: "BootstrapMateCLI",
@@ -36,8 +30,25 @@ let package = Package(
                 "BootstrapMateCore",
                 .product(name: "ArgumentParser", package: "swift-argument-parser")
             ],
-            path: "cli",
-            sources: ["."]
+            path: "Sources/cli"
+        ),
+        .executableTarget(
+            name: "BootstrapMateApp",
+            dependencies: [
+                "BootstrapMateCore"
+            ],
+            path: "Sources/app"
+        ),
+        .executableTarget(
+            name: "BootstrapMateHelper",
+            dependencies: [
+                "BootstrapMateCore"
+            ],
+            path: "Sources/helper"
+        ),
+        .testTarget(
+            name: "BootstrapMateCoreTests",
+            dependencies: ["BootstrapMateCore"]
         )
     ]
 )
