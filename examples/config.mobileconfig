@@ -21,6 +21,12 @@
 				<false/>
 				<key>reboot</key>
 				<false/>
+				<key>verifyPackageSignatures</key>
+				<true/>
+				<key>expectedTeamID</key>
+				<string>AB12CD34EF</string>
+				<key>allowUnsigned</key>
+				<false/>
 			</dict>
 			<key>PayloadDescription</key>
 			<string>Configures BootstrapMate with all available settings. Remove unused keys or set to desired values.</string>

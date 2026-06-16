@@ -10,6 +10,61 @@ struct BootstrapMateCoreTests {
     }
 }
 
+// MARK: - SignatureVerifier Tests
+
+@Suite("SignatureVerifier Tests")
+struct SignatureVerifierTests {
+
+    private static let sampleSignedOutput = """
+    Package "Example.pkg":
+       Status: signed by a certificate trusted by macOS
+       Certificate Chain:
+        1. Developer ID Installer: Example Corp (AB12CD34EF)
+           SHA256 Fingerprint:
+               ...
+        2. Developer ID Certification Authority
+        3. Apple Root CA
+    """
+
+    @Test("Parses Team ID from leaf certificate line")
+    func parsesTeamID() {
+        #expect(SignatureVerifier.parseTeamID(from: Self.sampleSignedOutput) == "AB12CD34EF")
+    }
+
+    @Test("Returns nil when no Team ID is present")
+    func noTeamID() {
+        let output = "Package \"x.pkg\":\n   Status: no signature"
+        #expect(SignatureVerifier.parseTeamID(from: output) == nil)
+    }
+
+    @Test("Signed package is allowed")
+    func signedAllowed() {
+        let decision = SignatureVerifier.shared.decide(.signed(teamID: "AB12CD34EF"), allowUnsigned: false)
+        #expect(decision == .allow)
+    }
+
+    @Test("Untrusted package is denied by default")
+    func untrustedDeniedByDefault() {
+        let decision = SignatureVerifier.shared.decide(.untrusted(reason: "no signature"), allowUnsigned: false)
+        if case .deny = decision { } else { Issue.record("expected deny") }
+    }
+
+    @Test("Untrusted package is allowed when allowUnsigned is set")
+    func untrustedAllowedWhenOptedIn() {
+        let decision = SignatureVerifier.shared.decide(.untrusted(reason: "no signature"), allowUnsigned: true)
+        #expect(decision == .allow)
+    }
+
+    @Test("Team ID mismatch is denied even when allowUnsigned is set")
+    func mismatchNeverBypassed() {
+        let decision = SignatureVerifier.shared.decide(
+            .teamIDMismatch(found: "ZZ99ZZ99ZZ", expected: "AB12CD34EF"),
+            allowUnsigned: true
+        )
+        if case .deny = decision { } else { Issue.record("expected deny on Team ID mismatch") }
+    }
+}
+
 // MARK: - ManifestDecoder Tests
 
 @Suite("ManifestDecoder Tests")

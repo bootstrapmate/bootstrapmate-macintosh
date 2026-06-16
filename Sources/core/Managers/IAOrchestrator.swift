@@ -317,8 +317,17 @@ public final class IAOrchestrator {
         
         // Install
         DialogManager.shared.notifyInstallStarted(packageName: displayName)
-        
-        let installSuccess = PackageManager.shared.installPackage(atPath: item.file)
+
+        // Per-item overrides fall back to the global managed config.
+        let cfg = ConfigManager.shared.config
+        let effectiveTeamID = item.expectedTeamID ?? cfg.expectedTeamID
+        let effectiveAllowUnsigned = item.allowUnsigned ?? cfg.allowUnsigned
+        let installSuccess = PackageManager.shared.installPackage(
+            atPath: item.file,
+            expectedTeamID: effectiveTeamID,
+            allowUnsigned: effectiveAllowUnsigned,
+            verifySignature: cfg.verifyPackageSignatures
+        )
         
         if installSuccess {
             Logger.writeSuccess("\(displayName) installed successfully")
