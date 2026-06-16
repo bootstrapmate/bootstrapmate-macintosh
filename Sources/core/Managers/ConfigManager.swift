@@ -23,6 +23,9 @@ public struct BootstrapMateConfig {
     public var customInstallPath: String?
     public var daemonIdentifier: String
     public var agentIdentifier: String
+    // Reporting: vendor-neutral run-summary POST
+    public var reportingUrl: String?
+    public var reportingHeader: String?
     // Security: package signature verification
     public var verifyPackageSignatures: Bool
     public var expectedTeamID: String?
@@ -47,6 +50,8 @@ public struct BootstrapMateConfig {
         customInstallPath: String? = nil,
         daemonIdentifier: String = BootstrapMateConstants.daemonIdentifier,
         agentIdentifier: String = BootstrapMateConstants.daemonIdentifier,
+        reportingUrl: String? = nil,
+        reportingHeader: String? = nil,
         verifyPackageSignatures: Bool = true,
         expectedTeamID: String? = nil,
         allowUnsigned: Bool = false,
@@ -68,6 +73,8 @@ public struct BootstrapMateConfig {
         self.customInstallPath = customInstallPath
         self.daemonIdentifier = daemonIdentifier
         self.agentIdentifier = agentIdentifier
+        self.reportingUrl = reportingUrl
+        self.reportingHeader = reportingHeader
         self.verifyPackageSignatures = verifyPackageSignatures
         self.expectedTeamID = expectedTeamID
         self.allowUnsigned = allowUnsigned
@@ -118,6 +125,7 @@ public final class ConfigManager {
         userscriptOnly: Bool? = nil,
         silentMode: Bool? = nil,
         verboseMode: Bool? = nil,
+        reportingUrl: String? = nil,
         verifyPackageSignatures: Bool? = nil,
         expectedTeamID: String? = nil,
         allowUnsigned: Bool? = nil
@@ -160,6 +168,11 @@ public final class ConfigManager {
         if let verbose = verboseMode {
             config.verboseMode = verbose
             Logger.debug("CLI override: verboseMode = \(verbose)")
+        }
+
+        if let reporting = reportingUrl, !reporting.isEmpty {
+            config.reportingUrl = reporting
+            Logger.debug("CLI override: reportingUrl set")
         }
 
         if let verify = verifyPackageSignatures {
@@ -376,6 +389,22 @@ public final class ConfigManager {
         } else if let value = CFPreferencesCopyAppValue("laidentifier" as CFString, cfDomain) as? String {
             config.agentIdentifier = value
         }
+
+        // Reporting: vendor-neutral run-summary POST endpoint
+        let reportingUrlKeys = ["reportingUrl", "ReportingUrl", "ReportURL", "reportingURL"]
+        for key in reportingUrlKeys {
+            if let value = CFPreferencesCopyAppValue(key as CFString, cfDomain) as? String, !value.isEmpty {
+                config.reportingUrl = value
+                break
+            }
+        }
+        let reportingHeaderKeys = ["reportingHeader", "ReportingHeader", "ReportingAuthorizationHeader"]
+        for key in reportingHeaderKeys {
+            if let value = CFPreferencesCopyAppValue(key as CFString, cfDomain) as? String, !value.isEmpty {
+                config.reportingHeader = value
+                break
+            }
+        }
         
         // Security: package signature verification
         let verifyKeys = ["verifyPackageSignatures", "VerifyPackageSignatures", "verifySignatures"]
@@ -482,6 +511,7 @@ public final class ConfigManager {
         Logger.debug("  silentMode: \(config.silentMode)")
         Logger.debug("  verboseMode: \(config.verboseMode)")
         Logger.debug("  installPath: \(getInstallPath())")
+        Logger.debug("  reportingUrl: \(config.reportingUrl != nil ? "set" : "not set")")
         Logger.debug("  verifyPackageSignatures: \(config.verifyPackageSignatures)")
         Logger.debug("  expectedTeamID: \(config.expectedTeamID ?? "any trusted")")
         Logger.debug("  allowUnsigned: \(config.allowUnsigned)")
