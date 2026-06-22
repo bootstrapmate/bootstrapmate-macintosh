@@ -89,10 +89,10 @@ jobs:
                    "$PKG_ROOT/usr/local/bootstrapmate" "$ACTOOL_OUT"
 
           # Binaries (NO codesign -- the Munki pipeline signs downstream).
-          cp "$SWIFT_REL/bootstrapmate"        "$APP_MACOS/installapplications"
+          cp "$SWIFT_REL/bootstrapmate"        "$APP_MACOS/managedbootstrapinstall"
           cp "$SWIFT_REL/BootstrapMateApp"     "$APP_MACOS/BootstrapMateGUI"
           cp "$SWIFT_REL/BootstrapMateHelper"  "$APP_MACOS/BootstrapMateHelper"
-          chmod 755 "$APP_MACOS/installapplications" "$APP_MACOS/BootstrapMateGUI" "$APP_MACOS/BootstrapMateHelper"
+          chmod 755 "$APP_MACOS/managedbootstrapinstall" "$APP_MACOS/BootstrapMateGUI" "$APP_MACOS/BootstrapMateHelper"
 
           # Info.plist (version placeholders).
           sed -e "s/{{MARKETING_VERSION}}/$MARKETING_VERSION/g" \
@@ -134,7 +134,7 @@ jobs:
           echo "pkg=$PKG" >> "$GITHUB_OUTPUT"
           echo "--- built (unsigned) ---"
           ls -lh "$PKG"
-          pkgutil --payload-files "$PKG" | grep -E 'BootstrapMate(GUI|Helper)|installapplications' || true
+          pkgutil --payload-files "$PKG" | grep -E 'BootstrapMate(GUI|Helper)|managedbootstrapinstall' || true
 
       - name: Upload pkg artifact
         uses: actions/upload-artifact@v7

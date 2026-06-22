@@ -40,7 +40,7 @@ public struct ManifestGenerator {
 
             let manifestItem = ManifestItem(
                 name: item.name,
-                file: "/Library/bootstrapmate/\(URL(fileURLWithPath: item.file).lastPathComponent)",
+                file: "/Library/Managed Bootstrap/cache/\(URL(fileURLWithPath: item.file).lastPathComponent)",
                 url: "\(baseURL)/\(item.type)/\(URL(fileURLWithPath: item.file).lastPathComponent)",
                 hash: hash,
                 type: item.type,
