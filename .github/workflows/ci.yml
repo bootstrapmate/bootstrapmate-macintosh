@@ -65,8 +65,8 @@ jobs:
           # Create app bundle
           mkdir -p "$APP_PATH/Contents/MacOS"
           mkdir -p "$APP_PATH/Contents/Resources"
-          cp .build/apple/Products/Release/bootstrapmate "$APP_PATH/Contents/MacOS/installapplications"
-          chmod 755 "$APP_PATH/Contents/MacOS/installapplications"
+          cp .build/apple/Products/Release/bootstrapmate "$APP_PATH/Contents/MacOS/managedbootstrapinstall"
+          chmod 755 "$APP_PATH/Contents/MacOS/managedbootstrapinstall"
           sed "s/{{VERSION}}/$VERSION/g" "$PACKAGING_DIR/resources/Info.plist.template" > "$APP_PATH/Contents/Info.plist"
 
           # Copy LaunchDaemon and scripts

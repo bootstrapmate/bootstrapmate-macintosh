@@ -12,9 +12,9 @@ log() {
 log "=== BootstrapMate postinstall started ==="
 
 APP_PATH="/Applications/Utilities/BootstrapMate.app"
-BINARY_PATH="${APP_PATH}/Contents/MacOS/installapplications"
+BINARY_PATH="${APP_PATH}/Contents/MacOS/managedbootstrapinstall"
 SYMLINK_DIR="/usr/local/bootstrapmate"
-SYMLINK_PATH="${SYMLINK_DIR}/installapplications"
+SYMLINK_PATH="${SYMLINK_DIR}/managedbootstrapinstall"
 LAUNCHDAEMON_PATH="/Library/LaunchDaemons/com.github.bootstrapmate.plist"
 
 # Managed Bootstrap directory structure
@@ -44,6 +44,9 @@ if [[ -x "${BINARY_PATH}" ]]; then
     mkdir -p "${SYMLINK_DIR}"
     ln -sf "${BINARY_PATH}" "${SYMLINK_PATH}"
     log "Symlink created: ${SYMLINK_PATH} -> ${BINARY_PATH}"
+
+    # Hard cut: drop the legacy installapplications symlink from prior versions
+    rm -f "${SYMLINK_DIR}/installapplications" 2>/dev/null || true
     
     # Verify symlink works
     if [[ -x "${SYMLINK_PATH}" ]]; then
@@ -60,8 +63,11 @@ if [[ -x "${BINARY_PATH}" ]]; then
         chown root:wheel "${LAUNCHDAEMON_PATH}"
         log "LaunchDaemon permissions set"
         
-        # Load the LaunchDaemon
+        # Boot out any previously loaded job first: launchctl load no-ops when the
+        # label is already loaded, which on an upgrade would leave launchd pointing
+        # at the old executable path (the binary was renamed). Boot out, then load.
         log "Loading LaunchDaemon..."
+        /bin/launchctl bootout system/com.github.bootstrapmate 2>/dev/null || true
         /bin/launchctl load -w "${LAUNCHDAEMON_PATH}" 2>&1 | tee -a /tmp/bootstrapmate-postinstall.log || log "launchctl load returned non-zero"
         log "LaunchDaemon load attempted"
     else
