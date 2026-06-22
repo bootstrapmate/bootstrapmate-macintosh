@@ -37,11 +37,12 @@ public struct ManifestGenerator {
                 )
             }
             let hash = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+            let filename = URL(fileURLWithPath: item.file).lastPathComponent
 
             let manifestItem = ManifestItem(
                 name: item.name,
-                file: "/Library/Managed Bootstrap/cache/\(URL(fileURLWithPath: item.file).lastPathComponent)",
-                url: "\(baseURL)/\(item.type)/\(URL(fileURLWithPath: item.file).lastPathComponent)",
+                file: "\(BootstrapMateConstants.cacheDirectory)/\(filename)",
+                url: "\(baseURL)/\(item.type)/\(filename)",
                 hash: hash,
                 type: item.type,
                 retries: item.retries,
