@@ -23,7 +23,7 @@ BUILD_DIR = build
 PKG_ROOT = $(BUILD_DIR)/pkg-root
 PACKAGING_DIR = packaging
 SCRIPTS_DIR = $(BUILD_DIR)/scripts
-BINARY_NAME = installapplications
+BINARY_NAME = managedbootstrapinstall
 GUI_BINARY_NAME = BootstrapMateGUI
 HELPER_BINARY_NAME = BootstrapMateHelper
 BINARY_INSTALL_PATH = usr/local/bootstrapmate
@@ -132,7 +132,7 @@ copy-binary: swift-build
 	@codesign --force --sign "$(SIGNING_IDENTITY_APP)" \
 		--options runtime \
 		--timestamp \
-		--identifier com.github.bootstrapmate.installapplications \
+		--identifier com.github.bootstrapmate.managedbootstrapinstall \
 		$(SWIFT_BINARY)
 	
 	# Sign the GUI binary

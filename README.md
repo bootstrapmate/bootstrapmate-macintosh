@@ -22,7 +22,7 @@ Examples:
 
 Check installed version:
 ```bash
-/usr/local/bootstrapmate/installapplications --version
+/usr/local/bootstrapmate/managedbootstrapinstall --version
 ```
 
 ## Building

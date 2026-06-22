@@ -14,8 +14,7 @@ public final class ManagementDetector: Sendable {
 
     /// Preference domains checked for management, in priority order.
     private let managedDomains = [
-        "com.github.bootstrapmate",
-        "io.macadmins.installapplications"
+        "com.github.bootstrapmate"
     ]
 
     /// Known key aliases — maps canonical key to all variant names.
