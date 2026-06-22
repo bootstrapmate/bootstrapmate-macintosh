@@ -6,7 +6,7 @@
     <string>com.github.bootstrapmate</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/Applications/Utilities/BootstrapMate.app/Contents/MacOS/installapplications</string>
+        <string>/Applications/Utilities/BootstrapMate.app/Contents/MacOS/managedbootstrapinstall</string>
     </array>
     <key>RunAtLoad</key>
     <true/>

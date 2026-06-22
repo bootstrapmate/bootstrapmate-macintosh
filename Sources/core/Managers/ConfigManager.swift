@@ -92,8 +92,7 @@ public final class ConfigManager {
     
     // management preference domains to check (in order of priority)
     private let managementPreferenceDomains = [
-        "com.github.bootstrapmate",           // Primary BootstrapMate domain (management profile)
-        "io.macadmins.installapplications"    // InstallApplications compatibility
+        "com.github.bootstrapmate"            // Primary BootstrapMate domain (management profile)
     ]
     
     // Default installation path
