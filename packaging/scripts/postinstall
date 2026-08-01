@@ -11,7 +11,8 @@ log() {
 
 log "=== BootstrapMate postinstall started ==="
 
-APP_PATH="/Applications/Utilities/BootstrapMate.app"
+APP_PATH="/Applications/Utilities/Managed Bootstrap Install.app"
+LEGACY_APP_PATH="/Applications/Utilities/BootstrapMate.app"
 BINARY_PATH="${APP_PATH}/Contents/MacOS/managedbootstrapinstall"
 SYMLINK_DIR="/usr/local/bootstrapmate"
 SYMLINK_PATH="${SYMLINK_DIR}/managedbootstrapinstall"
@@ -23,6 +24,13 @@ LOG_DIR="${MANAGED_DIR}/logs"
 CACHE_DIR="${MANAGED_DIR}/cache"
 
 log "Creating directories..."
+
+# Remove the pre-rename app bundle: the payload no longer covers the old path,
+# so an upgrade would otherwise leave both apps in /Applications/Utilities
+if [[ -d "${LEGACY_APP_PATH}" ]]; then
+    rm -rf "${LEGACY_APP_PATH}"
+    log "Removed legacy app bundle: ${LEGACY_APP_PATH}"
+fi
 
 # Create Managed Bootstrap directories FIRST (before daemon can start)
 mkdir -p "${LOG_DIR}"
@@ -37,7 +45,7 @@ if [[ -x "${BINARY_PATH}" ]]; then
     log "Binary found: ${BINARY_PATH}"
     
     # Get binary info
-    log "Binary architecture: $(file ${BINARY_PATH})"
+    log "Binary architecture: $(file "${BINARY_PATH}")"
     
     # Create symlink directory and symlink
     rm -f "${SYMLINK_DIR}/.placeholder" 2>/dev/null || true
