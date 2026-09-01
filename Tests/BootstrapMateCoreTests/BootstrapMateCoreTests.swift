@@ -368,3 +368,113 @@ struct ManifestDecoderTests {
         #expect(user.skipIf == "x86_64")
     }
 }
+
+// MARK: - Logger Tests
+
+@Suite("Logger Tests")
+struct LoggerTests {
+
+    private static let linePattern = #"^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\] (DEBUG|INFO |WARN |ERROR) \S.*$"#
+
+    private static func localDate(year: Int, month: Int, day: Int, hour: Int, minute: Int, second: Int) -> Date {
+        var components = DateComponents()
+        components.year = year
+        components.month = month
+        components.day = day
+        components.hour = hour
+        components.minute = minute
+        components.second = second
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone.current
+        return calendar.date(from: components)!
+    }
+
+    private static func makeTempDirectory() throws -> String {
+        let path = NSTemporaryDirectory() + "bootstrapmate-tests-" + UUID().uuidString
+        try FileManager.default.createDirectory(atPath: path, withIntermediateDirectories: true)
+        return path
+    }
+
+    @Test("Line format is timestamp, padded level, message")
+    func lineFormat() {
+        let date = Self.localDate(year: 2026, month: 9, day: 1, hour: 13, minute: 15, second: 14)
+        #expect(Logger.formatLine(level: .info, message: "Session started", date: date)
+            == "[2026-09-01 13:15:14] INFO  Session started")
+        #expect(Logger.formatLine(level: .error, message: "Failed to load manifest", date: date)
+            == "[2026-09-01 13:15:14] ERROR Failed to load manifest")
+        #expect(Logger.formatLine(level: .warning, message: "Retrying", date: date)
+            == "[2026-09-01 13:15:14] WARN  Retrying")
+        #expect(Logger.formatLine(level: .debug, message: "Detail", date: date)
+            == "[2026-09-01 13:15:14] DEBUG Detail")
+        #expect(Logger.formatLine(level: .success, message: "Done", date: date)
+            == "[2026-09-01 13:15:14] INFO  Done")
+    }
+
+    @Test("Every line written to the log file matches the convention")
+    func fileLinesMatchConvention() throws {
+        let directory = try Self.makeTempDirectory()
+        defer { try? FileManager.default.removeItem(atPath: directory) }
+
+        Logger.initialize(logDirectory: directory, version: "test", verboseConsole: false, silentMode: true)
+        Logger.info("Session started")
+        Logger.warning("Something odd")
+        Logger.error("Failed to load manifest")
+        Logger.debug("Detail")
+        Logger.writeSection("Preflight")
+        Logger.writeSuccess("Installed")
+
+        let path = try #require(Logger.getLogFilePath())
+        #expect(path.hasPrefix(directory))
+        #expect((path as NSString).lastPathComponent.range(of: #"^\d{4}-\d{2}-\d{2}-\d{6}\.log$"#, options: .regularExpression) != nil)
+
+        let content = try String(contentsOfFile: path, encoding: .utf8)
+        let lines = content.split(separator: "\n").map(String.init)
+        #expect(lines.count >= 18)
+        for line in lines {
+            #expect(line.range(of: Self.linePattern, options: .regularExpression) != nil, "unexpected line: \(line)")
+        }
+        #expect(lines.contains { $0.hasSuffix("] INFO  Session started") })
+        #expect(lines.contains { $0.hasSuffix("] WARN  Something odd") })
+        #expect(lines.contains { $0.hasSuffix("] ERROR Failed to load manifest") })
+        #expect(lines.contains { $0.hasSuffix("] DEBUG Detail") })
+        #expect(lines.contains { $0.hasSuffix("] INFO  [SECTION] Preflight") })
+        #expect(!content.contains("WARNING"))
+        #expect(!content.contains("] SUCCESS"))
+    }
+
+    @Test("Retention removes only .log files older than the window")
+    func retentionSweep() throws {
+        let directory = try Self.makeTempDirectory()
+        defer { try? FileManager.default.removeItem(atPath: directory) }
+
+        let fm = FileManager.default
+        let now = Date()
+        let day: TimeInterval = 24 * 60 * 60
+
+        func create(_ name: String, ageInDays: Double) throws {
+            let path = (directory as NSString).appendingPathComponent(name)
+            fm.createFile(atPath: path, contents: Data("x".utf8))
+            try fm.setAttributes([.modificationDate: now.addingTimeInterval(-ageInDays * day)], ofItemAtPath: path)
+        }
+
+        try create("2026-07-01-120000.log", ageInDays: 45)
+        try create("2026-07-20-120000.log", ageInDays: 31)
+        try create("2026-08-25-120000.log", ageInDays: 7)
+        try create("notes.txt", ageInDays: 90)
+        let subdir = (directory as NSString).appendingPathComponent("archive.log")
+        try fm.createDirectory(atPath: subdir, withIntermediateDirectories: false)
+        try fm.setAttributes([.modificationDate: now.addingTimeInterval(-90 * day)], ofItemAtPath: subdir)
+
+        let removed = Logger.pruneLogFiles(in: directory, olderThan: Logger.retentionInterval, now: now)
+        #expect(removed == 2)
+
+        let remaining = Set(try fm.contentsOfDirectory(atPath: directory))
+        #expect(remaining == ["2026-08-25-120000.log", "notes.txt", "archive.log"])
+    }
+
+    @Test("Retention tolerates a missing directory")
+    func retentionMissingDirectory() {
+        let missing = NSTemporaryDirectory() + "bootstrapmate-missing-" + UUID().uuidString
+        #expect(Logger.pruneLogFiles(in: missing, olderThan: Logger.retentionInterval) == 0)
+    }
+}

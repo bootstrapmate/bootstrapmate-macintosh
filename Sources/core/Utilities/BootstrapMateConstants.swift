@@ -8,6 +8,7 @@ public enum BootstrapMateConstants {
     public static let defaultRetryCount = 3
     public static let defaultRetryDelay = 5
     public static let cacheDirectory = "/Library/Managed Bootstrap/cache"
+    public static let logsDirectory = "/Library/Managed Bootstrap/logs"
     
     // Version in YYYY.MM.DD.HHMM format - generated at compile time
     public static let version: String = {

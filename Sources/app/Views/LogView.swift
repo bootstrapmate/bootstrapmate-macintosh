@@ -202,11 +202,11 @@ struct LogView: View {
     // MARK: - Log Line Coloring
 
     private func colorForLogLine(_ line: String) -> Color {
-        if line.contains("[ERROR]") || line.contains("✗") { return .red }
-        if line.contains("[WARNING]") || line.contains("⚠") { return .orange }
+        if line.contains("] ERROR ") || line.contains("✗") { return .red }
+        if line.contains("] WARN  ") || line.contains("⚠") { return .orange }
         if line.contains("[SUCCESS]") || line.contains("✓") { return .green }
-        if line.contains("[DEBUG]") { return .gray }
-        if line.hasPrefix("===") { return .cyan }
+        if line.contains("] DEBUG ") { return .gray }
+        if line.contains("] INFO  ===") { return .cyan }
         return .white
     }
 }

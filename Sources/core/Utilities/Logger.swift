@@ -5,6 +5,11 @@
 //  Comprehensive logging with file output, levels, and os_log integration.
 //  macOS equivalent of Windows Logger.cs.
 //
+//  File lines follow the shared management-tool convention:
+//  "[yyyy-MM-dd HH:mm:ss] LEVEL message" in local time, where LEVEL is one of
+//  DEBUG, INFO, WARN or ERROR padded to five characters. Console output keeps
+//  its own styling and is not the log.
+//
 
 import Foundation
 import os.log
@@ -15,16 +20,32 @@ public enum LogLevel: String, Comparable {
     case warning = "WARNING"
     case error = "ERROR"
     case success = "SUCCESS"
-    
+
     public static func < (lhs: LogLevel, rhs: LogLevel) -> Bool {
         let order: [LogLevel] = [.debug, .info, .warning, .error, .success]
         return order.firstIndex(of: lhs)! < order.firstIndex(of: rhs)!
+    }
+
+    /// Level label written to the log file. Only DEBUG, INFO, WARN and ERROR
+    /// are valid on disk; SUCCESS is an INFO line.
+    var fileLabel: String {
+        switch self {
+        case .debug: return "DEBUG"
+        case .info, .success: return "INFO"
+        case .warning: return "WARN"
+        case .error: return "ERROR"
+        }
     }
 }
 
 public final class Logger {
     nonisolated(unsafe) private static var shared: Logger?
-    
+
+    /// Log files older than this are removed at the start of every run.
+    public static let retentionInterval: TimeInterval = 30 * 24 * 60 * 60
+
+    private static let fileTimestampFormat = "yyyy-MM-dd HH:mm:ss"
+
     private let logDirectory: String
     private let logFilePath: String
     private var verboseConsole: Bool
@@ -33,53 +54,59 @@ public final class Logger {
     private let osLog: OSLog
     private let fileHandle: FileHandle?
     private let dateFormatter: DateFormatter
-    
+
     // MARK: - Initialization
-    
+
     private init(logDirectory: String, version: String, verboseConsole: Bool, silentMode: Bool) {
         self.logDirectory = logDirectory
         self.verboseConsole = verboseConsole
         self.silentMode = silentMode
         self.sessionStartTime = Date()
         self.osLog = OSLog(subsystem: "com.github.bootstrapmate", category: "general")
-        
-        self.dateFormatter = DateFormatter()
-        self.dateFormatter.dateFormat = "yyyy-MM-dd HH:mm:ss.SSS"
-        
+
+        self.dateFormatter = Logger.makeTimestampFormatter()
+
         // Create log directory if needed
         let fileManager = FileManager.default
         if !fileManager.fileExists(atPath: logDirectory) {
             try? fileManager.createDirectory(atPath: logDirectory, withIntermediateDirectories: true)
         }
-        
+
+        // Retention: drop log files older than the retention window before opening a new one
+        let prunedCount = Logger.pruneLogFiles(in: logDirectory, olderThan: Logger.retentionInterval)
+
         // Create log file with timestamp (matching Windows format: YYYY-MM-DD-HHmmss.log)
         let logFileName = DateFormatter().apply {
             $0.dateFormat = "yyyy-MM-dd-HHmmss"
+            $0.locale = Locale(identifier: "en_US_POSIX")
         }.string(from: Date()) + ".log"
-        
+
         self.logFilePath = (logDirectory as NSString).appendingPathComponent(logFileName)
-        
+
         // Create file and get handle
         fileManager.createFile(atPath: logFilePath, contents: nil)
         self.fileHandle = FileHandle(forWritingAtPath: logFilePath)
-        
+
         // Write session header
-        writeToFile("=== BootstrapMate Session Started ===")
-        writeToFile("Version: \(version)")
-        writeToFile("Session Start Time: \(dateFormatter.string(from: sessionStartTime))")
-        writeToFile("Process ID: \(ProcessInfo.processInfo.processIdentifier)")
-        writeToFile("User: \(NSUserName())")
-        writeToFile("Machine: \(Host.current().localizedName ?? "Unknown")")
-        writeToFile("OS: \(ProcessInfo.processInfo.operatingSystemVersionString)")
-        writeToFile("Architecture: \(getArchitecture())")
-        writeToFile("Working Directory: \(FileManager.default.currentDirectoryPath)")
-        writeToFile("Command Line: \(CommandLine.arguments.joined(separator: " "))")
-        writeToFile("Verbose Console: \(verboseConsole)")
-        writeToFile("Silent Mode: \(silentMode)")
+        writeToFile(level: .info, "=== BootstrapMate Session Started ===")
+        writeToFile(level: .info, "Version: \(version)")
+        writeToFile(level: .info, "Session Start Time: \(dateFormatter.string(from: sessionStartTime))")
+        writeToFile(level: .info, "Process ID: \(ProcessInfo.processInfo.processIdentifier)")
+        writeToFile(level: .info, "User: \(NSUserName())")
+        writeToFile(level: .info, "Machine: \(Host.current().localizedName ?? "Unknown")")
+        writeToFile(level: .info, "OS: \(ProcessInfo.processInfo.operatingSystemVersionString)")
+        writeToFile(level: .info, "Architecture: \(getArchitecture())")
+        writeToFile(level: .info, "Working Directory: \(FileManager.default.currentDirectoryPath)")
+        writeToFile(level: .info, "Command Line: \(CommandLine.arguments.joined(separator: " "))")
+        writeToFile(level: .info, "Verbose Console: \(verboseConsole)")
+        writeToFile(level: .info, "Silent Mode: \(silentMode)")
+        if prunedCount > 0 {
+            writeToFile(level: .info, "Removed \(prunedCount) log file(s) older than 30 days")
+        }
     }
-    
+
     public static func initialize(
-        logDirectory: String = "/Library/Managed Bootstrap/logs",
+        logDirectory: String = BootstrapMateConstants.logsDirectory,
         version: String = "Unknown",
         verboseConsole: Bool = false,
         silentMode: Bool = false
@@ -91,93 +118,93 @@ public final class Logger {
             silentMode: silentMode
         )
     }
-    
+
     // MARK: - Public Logging Methods
-    
+
     public static func debug(_ message: String) {
         log(level: .debug, message: message)
     }
-    
+
     public static func info(_ message: String) {
         log(level: .info, message: message)
     }
-    
+
     public static func warning(_ message: String) {
         log(level: .warning, message: message)
     }
-    
+
     public static func error(_ message: String) {
         log(level: .error, message: message)
     }
-    
+
     public static func success(_ message: String) {
         log(level: .success, message: message)
     }
-    
+
     /// Legacy compatibility method
     public static func log(_ message: String) {
         info(message)
     }
-    
+
     // MARK: - Structured Output Methods
-    
+
     public static func writeHeader(_ title: String) {
         let timestamp = shared?.dateFormatter.string(from: Date()) ?? ""
-        shared?.writeToFile("=== \(title) === (Started: \(timestamp))")
+        shared?.writeToFile(level: .info, "=== \(title) ===")
         guard shared?.silentMode != true else { return }
         print()
         print("══ \(title) ══")
         print("Started: \(timestamp)")
     }
-    
+
     public static func writeSection(_ section: String) {
-        shared?.writeToFile("[SECTION] \(section)")
+        shared?.writeToFile(level: .info, "[SECTION] \(section)")
         guard shared?.silentMode != true else { return }
         print()
         print("[>] \(section)")
     }
-    
+
     public static func writeProgress(_ operation: String, _ item: String) {
-        shared?.writeToFile("[PROGRESS] \(operation): \(item)")
+        shared?.writeToFile(level: .info, "[PROGRESS] \(operation): \(item)")
         guard shared?.silentMode != true else { return }
         print("   [*] \(operation): \(item)")
     }
-    
+
     public static func writeSubProgress(_ status: String, _ details: String = "") {
         let message = details.isEmpty ? status : "\(status): \(details)"
-        shared?.writeToFile("[SUB-PROGRESS] \(message)")
+        shared?.writeToFile(level: .info, "[SUB-PROGRESS] \(message)")
         guard shared?.silentMode != true else { return }
         print("      • \(message)")
     }
-    
+
     public static func writeSuccess(_ message: String) {
-        shared?.writeToFile("[SUCCESS] \(message)")
+        shared?.writeToFile(level: .info, "[SUCCESS] \(message)")
         guard shared?.silentMode != true else { return }
         print("      ✓ \(message)")
     }
-    
+
     public static func writeWarning(_ message: String) {
-        shared?.writeToFile("[WARNING] \(message)")
+        shared?.writeToFile(level: .warning, message)
         guard shared?.silentMode != true else { return }
         print("      ⚠ \(message)")
     }
-    
+
     public static func writeError(_ message: String) {
-        shared?.writeToFile("[ERROR] \(message)")
+        shared?.writeToFile(level: .error, message)
         guard shared?.silentMode != true else { return }
         print("      ✗ \(message)")
     }
-    
+
     public static func writeSkipped(_ message: String) {
-        shared?.writeToFile("[SKIPPED] \(message)")
+        shared?.writeToFile(level: .info, "[SKIPPED] \(message)")
         guard shared?.silentMode != true else { return }
         print("      - \(message)")
     }
-    
+
     public static func writeCompletion(_ message: String) {
         let timestamp = shared?.dateFormatter.string(from: Date()) ?? ""
         let duration = shared?.getSessionDuration() ?? 0
-        shared?.writeToFile("[COMPLETION] \(message) (Completed: \(timestamp), Total Duration: \(String(format: "%.1f", duration))s)")
+        shared?.writeToFile(level: .info, "[COMPLETION] \(message) (Total Duration: \(String(format: "%.1f", duration))s)")
         guard shared?.silentMode != true else { return }
         print()
         print("✓ \(message)")
@@ -185,52 +212,94 @@ public final class Logger {
         print("Total Duration: \(String(format: "%.1f", duration / 60)) minutes (\(String(format: "%.1f", duration)) seconds)")
         print()
     }
-    
+
     public static func writeSessionSummary() {
         let duration = shared?.getSessionDuration() ?? 0
-        let timestamp = shared?.dateFormatter.string(from: Date()) ?? ""
-        shared?.writeToFile("=== BootstrapMate Session Ended === (Duration: \(String(format: "%.1f", duration))s)")
-        shared?.writeToFile("Session End Time: \(timestamp)")
-        shared?.writeToFile("Total Session Duration: \(String(format: "%.2f", duration / 60)) minutes")
+        shared?.writeToFile(level: .info, "=== BootstrapMate Session Ended === (Duration: \(String(format: "%.1f", duration))s)")
+        shared?.writeToFile(level: .info, "Total Session Duration: \(String(format: "%.2f", duration / 60)) minutes")
     }
-    
+
     public static func getLogFilePath() -> String? {
         return shared?.logFilePath
     }
-    
+
     public static func getSessionDuration() -> TimeInterval {
         return shared?.getSessionDuration() ?? 0
     }
-    
+
+    // MARK: - Line Format and Retention
+
+    /// Formats one log file line: "[yyyy-MM-dd HH:mm:ss] LEVEL message".
+    /// The level label is padded to five characters so messages align.
+    static func formatLine(level: LogLevel, message: String, date: Date, formatter: DateFormatter? = nil) -> String {
+        let timestampFormatter = formatter ?? makeTimestampFormatter()
+        let label = level.fileLabel.padding(toLength: 5, withPad: " ", startingAt: 0)
+        return "[\(timestampFormatter.string(from: date))] \(label) \(message)"
+    }
+
+    /// Removes ".log" files in `directory` whose modification date is older
+    /// than `maxAge` relative to `now`. Non-recursive and error-tolerant:
+    /// a file that cannot be inspected or removed is skipped. Returns the
+    /// number of files removed.
+    @discardableResult
+    static func pruneLogFiles(in directory: String, olderThan maxAge: TimeInterval, now: Date = Date()) -> Int {
+        let fileManager = FileManager.default
+        guard let entries = try? fileManager.contentsOfDirectory(atPath: directory) else { return 0 }
+
+        let cutoff = now.addingTimeInterval(-maxAge)
+        var removed = 0
+
+        for entry in entries where entry.hasSuffix(".log") {
+            let path = (directory as NSString).appendingPathComponent(entry)
+            guard let attributes = try? fileManager.attributesOfItem(atPath: path),
+                  (attributes[.type] as? FileAttributeType) == .typeRegular,
+                  let modified = attributes[.modificationDate] as? Date,
+                  modified < cutoff else { continue }
+
+            if (try? fileManager.removeItem(atPath: path)) != nil {
+                removed += 1
+            }
+        }
+
+        return removed
+    }
+
+    private static func makeTimestampFormatter() -> DateFormatter {
+        let formatter = DateFormatter()
+        formatter.dateFormat = fileTimestampFormat
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone.current
+        return formatter
+    }
+
     // MARK: - Private Methods
-    
+
     private static func log(level: LogLevel, message: String) {
         // Ensure logger is initialized with defaults if not already
         if shared == nil {
             initialize()
         }
-        
+
         guard let logger = shared else { return }
-        
+
         // Always write to log file with full detail
-        logger.writeToFile("[\(level.rawValue)] \(message)")
-        
+        logger.writeToFile(level: level, message)
+
         // Write to os_log
         logger.writeToOSLog(level: level, message: message)
-        
+
         // Write to console based on level and verbose setting
         logger.writeToConsole(level: level, message: message)
     }
-    
-    private func writeToFile(_ message: String) {
-        let timestamp = dateFormatter.string(from: Date())
-        let logEntry = "[\(timestamp)] \(message)\n"
-        
+
+    private func writeToFile(level: LogLevel, _ message: String) {
+        let logEntry = Logger.formatLine(level: level, message: message, date: Date(), formatter: dateFormatter) + "\n"
+
         if let data = logEntry.data(using: .utf8) {
             fileHandle?.write(data)
         }
     }
-    
+
     private func writeToOSLog(level: LogLevel, message: String) {
         let osLogType: OSLogType
         switch level {
@@ -242,19 +311,19 @@ public final class Logger {
         }
         os_log("%{public}@", log: osLog, type: osLogType, message)
     }
-    
+
     private func writeToConsole(level: LogLevel, message: String) {
         // Skip console output in silent mode
         guard !silentMode else { return }
-        
+
         // Only show debug messages in verbose mode
         if level == .debug && !verboseConsole { return }
-        
+
         let (icon, _) = getDisplayFormat(level: level)
         print("\(icon) \(message)")
         fflush(stdout)
     }
-    
+
     private func getDisplayFormat(level: LogLevel) -> (String, String?) {
         switch level {
         case .debug: return ("[~]", "gray")
@@ -264,11 +333,11 @@ public final class Logger {
         case .success: return ("[+]", "green")
         }
     }
-    
+
     private func getSessionDuration() -> TimeInterval {
         return Date().timeIntervalSince(sessionStartTime)
     }
-    
+
     private func getArchitecture() -> String {
         var systemInfo = utsname()
         uname(&systemInfo)
@@ -279,7 +348,7 @@ public final class Logger {
         let identifier = String(chars)
         return identifier.contains("arm64") ? "ARM64" : "X64"
     }
-    
+
     deinit {
         fileHandle?.closeFile()
     }
