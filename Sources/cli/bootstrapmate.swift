@@ -105,46 +105,20 @@ struct BootstrapMate: ParsableCommand {
     }
 
     func run() throws {
-        // Early fallback logging to /tmp in case main log dir doesn't exist yet
-        let fallbackLog = "/tmp/bootstrapmate-startup.log"
-        func earlyLog(_ msg: String) {
-            let df = DateFormatter()
-            df.dateFormat = "yyyy-MM-dd HH:mm:ss"
-            let timestamp = df.string(from: Date())
-            let entry = "[\(timestamp)] \(msg)\n"
-            if let data = entry.data(using: .utf8) {
-                if FileManager.default.fileExists(atPath: fallbackLog) {
-                    if let handle = FileHandle(forWritingAtPath: fallbackLog) {
-                        handle.seekToEndOfFile()
-                        handle.write(data)
-                        handle.closeFile()
-                    }
-                } else {
-                    FileManager.default.createFile(atPath: fallbackLog, contents: data)
-                }
-            }
-        }
-        
-        earlyLog("BootstrapMate v\(BootstrapMateConstants.version) starting...")
-        earlyLog("  Arguments: \(CommandLine.arguments.joined(separator: " "))")
-        earlyLog("  User: \(NSUserName())")
-        earlyLog("  UID: \(getuid())")
-        
-        // Ensure log directory exists before initializing Logger
-        let logDir = "/Library/Managed Bootstrap/logs"
+        // Ensure the real log directory exists before initializing Logger.
+        // There is no fallback log elsewhere; a failure here is reported on stderr.
+        let logDir = BootstrapMateConstants.logsDirectory
         let fileManager = FileManager.default
         if !fileManager.fileExists(atPath: logDir) {
-            earlyLog("Creating log directory: \(logDir)")
             do {
                 try fileManager.createDirectory(atPath: logDir, withIntermediateDirectories: true)
-                earlyLog("Log directory created successfully")
             } catch {
-                earlyLog("ERROR: Failed to create log directory: \(error.localizedDescription)")
+                FileHandle.standardError.write(
+                    Data("bootstrapmate: failed to create log directory \(logDir): \(error.localizedDescription)\n".utf8)
+                )
             }
-        } else {
-            earlyLog("Log directory already exists")
         }
-        
+
         // Initialize logger
         let version = BootstrapMateConstants.version
         Logger.initialize(
@@ -153,8 +127,6 @@ struct BootstrapMate: ParsableCommand {
             verboseConsole: verbose,
             silentMode: silent
         )
-        
-        earlyLog("Logger initialized, log file: \(Logger.getLogFilePath() ?? "unknown")")
 
         // Handle SIGTERM (sent by the helper when the user clicks Stop) by
         // terminating SwiftDialog before exiting, so the dialog doesn't linger.
@@ -169,7 +141,6 @@ struct BootstrapMate: ParsableCommand {
         
         Logger.info("BootstrapMate v\(version) started")
         Logger.debug("CLI arguments: \(CommandLine.arguments.joined(separator: " "))")
-        earlyLog("Main logger active, continuing startup...")
         
         // Wait for network connectivity before proceeding
         Logger.info("Waiting for network connectivity (timeout: \(networkTimeout)s)...")
@@ -201,13 +172,11 @@ struct BootstrapMate: ParsableCommand {
             // No CLI URL provided, we need management config
             if !ConfigManager.shared.isValid() {
                 Logger.info("Waiting for management configuration profile (timeout: \(managementTimeout)s)...")
-                earlyLog("Waiting for management config...")
                 
                 for i in 1...managementTimeout {
                     // Reload preferences from management domains
                     if ConfigManager.shared.reloadManagedPreferences() {
                         Logger.success("Management configuration received after \(i)s")
-                        earlyLog("Management config received after \(i)s")
                         break
                     }
                     
@@ -220,7 +189,6 @@ struct BootstrapMate: ParsableCommand {
                     
                     if i == managementTimeout {
                         Logger.warning("Management configuration not received within \(managementTimeout)s")
-                        earlyLog("Management config timeout after \(managementTimeout)s")
                     }
                 }
             }
