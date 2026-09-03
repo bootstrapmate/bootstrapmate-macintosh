@@ -410,6 +410,22 @@ struct LoggerTests {
             == "[2026-09-01 13:15:14] INFO  Done")
     }
 
+    @Test func fileLinesStampEveryLineAndDropBlanks() {
+        let date = Date(timeIntervalSince1970: 1_700_000_000)
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        let stamp = formatter.string(from: date)
+        let lines = Logger.fileLines(level: .info, message: "first\r\n\nsecond  \r\n", date: date)
+        #expect(lines == ["[\(stamp)] INFO  first", "[\(stamp)] INFO  second"])
+        #expect(Logger.fileLines(level: .info, message: "\n  \n", date: date).isEmpty)
+    }
+
+    @Test func outputLinesAreTaggedAndNamedForTheirSource() {
+        let text = Logger.prefixLines("Starting cleanup...\n\nDone.\n", with: "[OUTPUT] preflight.sh: ")
+        #expect(text == "[OUTPUT] preflight.sh: Starting cleanup...\n[OUTPUT] preflight.sh: Done.")
+    }
+
     @Test("Every line written to the log file matches the convention")
     func fileLinesMatchConvention() throws {
         let directory = try Self.makeTempDirectory()
