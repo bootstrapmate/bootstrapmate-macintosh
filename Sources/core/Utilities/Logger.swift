@@ -48,6 +48,10 @@ public final class Logger {
 
     private let logDirectory: String
     private let logFilePath: String
+    /// The run's session directory and structured files. Nil only when the
+    /// session directory could not be created, in which case the run falls
+    /// back to a flat per-run file at the logs root.
+    private let session: SessionLog?
     private var verboseConsole: Bool
     private var silentMode: Bool
     private let sessionStartTime: Date
@@ -57,7 +61,7 @@ public final class Logger {
 
     // MARK: - Initialization
 
-    private init(logDirectory: String, version: String, verboseConsole: Bool, silentMode: Bool) {
+    private init(logDirectory: String, version: String, runType: String, verboseConsole: Bool, silentMode: Bool) {
         self.logDirectory = logDirectory
         self.verboseConsole = verboseConsole
         self.silentMode = silentMode
@@ -72,18 +76,29 @@ public final class Logger {
             try? fileManager.createDirectory(atPath: logDirectory, withIntermediateDirectories: true)
         }
 
-        // Retention: drop log files older than the retention window before opening a new one
-        let prunedCount = Logger.pruneLogFiles(in: logDirectory, olderThan: Logger.retentionInterval)
+        // Retention: day directories past the window, session directories past
+        // the cap, and any loose per-run file left by the flat layout.
+        let prunedCount = SessionLog.prune(logsDirectory: logDirectory, now: sessionStartTime)
+            + Logger.pruneLogFiles(in: logDirectory, olderThan: Logger.retentionInterval, now: sessionStartTime)
 
-        // Create log file with timestamp (matching Windows format: YYYY-MM-DD-HHmmss.log)
-        let logFileName = DateFormatter().apply {
-            $0.dateFormat = "yyyy-MM-dd-HHmmss"
-            $0.locale = Locale(identifier: "en_US_POSIX")
-        }.string(from: Date()) + ".log"
+        // This run's session directory: logs/YYYY-MM-DD/HHMMSS/, holding
+        // bootstrap.log beside events.jsonl and session.json.
+        let session = SessionLog(
+            logsDirectory: logDirectory,
+            version: version,
+            runType: runType,
+            start: sessionStartTime
+        )
+        self.session = session
 
-        self.logFilePath = (logDirectory as NSString).appendingPathComponent(logFileName)
+        if let session = session {
+            self.logFilePath = session.logFilePath
+        } else {
+            // No session directory: keep the run readable at the logs root.
+            let fallbackName = Logger.fallbackFormatter.string(from: sessionStartTime) + ".log"
+            self.logFilePath = (logDirectory as NSString).appendingPathComponent(fallbackName)
+        }
 
-        // Create file and get handle
         fileManager.createFile(atPath: logFilePath, contents: nil)
         self.fileHandle = FileHandle(forWritingAtPath: logFilePath)
 
@@ -101,19 +116,21 @@ public final class Logger {
         writeToFile(level: .info, "Verbose Console: \(verboseConsole)")
         writeToFile(level: .info, "Silent Mode: \(silentMode)")
         if prunedCount > 0 {
-            writeToFile(level: .info, "Removed \(prunedCount) log file(s) older than 30 days")
+            writeToFile(level: .info, "Removed \(prunedCount) log directory or file(s) past retention")
         }
     }
 
     public static func initialize(
         logDirectory: String = BootstrapMateConstants.logsDirectory,
         version: String = "Unknown",
+        runType: String = "provisioning",
         verboseConsole: Bool = false,
         silentMode: Bool = false
     ) {
         shared = Logger(
             logDirectory: logDirectory,
             version: version,
+            runType: runType,
             verboseConsole: verboseConsole,
             silentMode: silentMode
         )
@@ -242,6 +259,12 @@ public final class Logger {
         let duration = shared?.getSessionDuration() ?? 0
         shared?.writeToFile(level: .info, "=== BootstrapMate Session Ended === (Duration: \(String(format: "%.1f", duration))s)")
         shared?.writeToFile(level: .info, "Total Session Duration: \(String(format: "%.2f", duration / 60)) minutes")
+        shared?.session?.finish()
+    }
+
+    /// The session id of the run in progress, when it has a session directory.
+    public static func currentSessionId() -> String? {
+        return shared?.session?.sessionId
     }
 
     public static func getLogFilePath() -> String? {
@@ -253,6 +276,25 @@ public final class Logger {
     }
 
     // MARK: - Line Format and Retention
+
+    /// The non-blank physical lines of a message, in order, matching what
+    /// `fileLines` writes to the human log so the two files stay one to one.
+    static func messageLines(_ message: String) -> [String] {
+        return message
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+            .split(separator: "\n", omittingEmptySubsequences: true)
+            .map { String($0).trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+    }
+
+    /// Names the flat per-run file used only when no session directory exists.
+    static let fallbackFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd-HHmmss"
+        f.locale = Locale(identifier: "en_US_POSIX")
+        return f
+    }()
 
     /// Formats one log file line: "[yyyy-MM-dd HH:mm:ss] LEVEL message".
     /// The level label is padded to five characters so messages align.
@@ -335,9 +377,17 @@ public final class Logger {
         // Every physical line in the file carries its own stamp and level: a
         // message with embedded newlines is written as one record per line,
         // and blank lines are dropped, so nothing in the file is ever unstamped.
-        let entry = Logger.fileLines(level: level, message: message, date: Date(), formatter: dateFormatter)
+        let now = Date()
+        let entry = Logger.fileLines(level: level, message: message, date: now, formatter: dateFormatter)
         guard !entry.isEmpty, let data = (entry.joined(separator: "\n") + "\n").data(using: .utf8) else { return }
         fileHandle?.write(data)
+
+        // The same records, structured, one JSON object per physical line.
+        if let session = session {
+            for line in Logger.messageLines(message) {
+                session.append(level: level.fileLabel, message: line, date: now)
+            }
+        }
     }
 
     private func writeToOSLog(level: LogLevel, message: String) {

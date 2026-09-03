@@ -2,8 +2,10 @@
 //  LogView.swift
 //  BootstrapMate
 //
-//  Displays historical log files from /Library/Managed Bootstrap/logs/.
-//  Lists available log sessions and shows the selected log's contents.
+//  Displays historical runs from /Library/Managed Bootstrap/logs/.
+//  Each run is a session directory, YYYY-MM-DD/HHMMSS/, holding bootstrap.log
+//  beside its structured events; flat per-run files from the layout this
+//  replaced are still listed.
 //
 
 import SwiftUI
@@ -163,20 +165,49 @@ struct LogView: View {
 
         let dateFormatter = DateFormatter()
         dateFormatter.dateFormat = "yyyy-MM-dd-HHmmss"
+        dateFormatter.locale = Locale(identifier: "en_US_POSIX")
+        let minuteFormatter = DateFormatter()
+        minuteFormatter.dateFormat = "yyyy-MM-dd-HHmm"
+        minuteFormatter.locale = Locale(identifier: "en_US_POSIX")
 
-        logFiles = files
+        func parse(_ stamp: String) -> Date? {
+            dateFormatter.date(from: stamp) ?? minuteFormatter.date(from: stamp)
+        }
+
+        // A run is a session directory, logs/YYYY-MM-DD/HHMMSS/bootstrap.log.
+        // Flat per-run files at the root predate that layout and are still listed.
+        var found: [LogFile] = []
+        for day in files.sorted(by: >) {
+            let dayPath = (logDirectory as NSString).appendingPathComponent(day)
+            var isDirectory: ObjCBool = false
+            guard fm.fileExists(atPath: dayPath, isDirectory: &isDirectory), isDirectory.boolValue,
+                  let sessions = try? fm.contentsOfDirectory(atPath: dayPath) else { continue }
+            for session in sessions.sorted(by: >) {
+                let sessionPath = (dayPath as NSString).appendingPathComponent(session)
+                guard let entries = try? fm.contentsOfDirectory(atPath: sessionPath) else { continue }
+                guard let log = entries.first(where: { $0 == "bootstrap.log" })
+                    ?? entries.first(where: { $0.hasSuffix(".log") }) else { continue }
+                let stamp = "\(day)-\(session)"
+                found.append(LogFile(
+                    id: stamp,
+                    name: stamp,
+                    path: (sessionPath as NSString).appendingPathComponent(log),
+                    date: parse(stamp)
+                ))
+            }
+        }
+        found += files
             .filter { $0.hasSuffix(".log") }
             .sorted(by: >)
             .map { name in
-                let baseName = name.replacingOccurrences(of: ".log", with: "")
-                let date = dateFormatter.date(from: baseName)
-                return LogFile(
+                LogFile(
                     id: name,
                     name: name,
                     path: (logDirectory as NSString).appendingPathComponent(name),
-                    date: date
+                    date: parse(name.replacingOccurrences(of: ".log", with: ""))
                 )
             }
+        logFiles = found.sorted { ($0.date ?? .distantPast) > ($1.date ?? .distantPast) }
 
         // Auto-select the most recent log
         if selectedLog == nil, let first = logFiles.first {
