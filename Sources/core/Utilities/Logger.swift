@@ -141,6 +141,31 @@ public final class Logger {
         log(level: .success, message: message)
     }
 
+    /// Console output captured from a script or installer, one record per
+    /// line, tagged `[OUTPUT]` and named for its source so a reader can tell
+    /// the tool's own lines from what it ran: stdout at INFO, stderr at WARN.
+    /// Blank lines are dropped by the writer.
+    public static func output(from source: String, stdout: String? = nil, stderr: String? = nil) {
+        let name = (source as NSString).lastPathComponent
+        if let text = stdout, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            log(level: .info, message: prefixLines(text, with: "[OUTPUT] \(name): "))
+        }
+        if let text = stderr, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            log(level: .warning, message: prefixLines(text, with: "[OUTPUT] \(name): "))
+        }
+    }
+
+    static func prefixLines(_ text: String, with prefix: String) -> String {
+        return text
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+            .split(separator: "\n", omittingEmptySubsequences: true)
+            .map { String($0) }
+            .filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+            .map { prefix + $0 }
+            .joined(separator: "\n")
+    }
+
     /// Legacy compatibility method
     public static func log(_ message: String) {
         info(message)
@@ -237,6 +262,20 @@ public final class Logger {
         return "[\(timestampFormatter.string(from: date))] \(label) \(message)"
     }
 
+    /// One stamped record per non-blank line of `message`, in order. Carriage
+    /// returns are treated as line breaks so captured console output splits
+    /// cleanly, and trailing whitespace on each line is dropped.
+    static func fileLines(level: LogLevel, message: String, date: Date, formatter: DateFormatter? = nil) -> [String] {
+        let timestampFormatter = formatter ?? makeTimestampFormatter()
+        return message
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .map { $0.replacingOccurrences(of: "\\s+$", with: "", options: .regularExpression) }
+            .filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+            .map { formatLine(level: level, message: $0, date: date, formatter: timestampFormatter) }
+    }
+
     /// Removes ".log" files in `directory` whose modification date is older
     /// than `maxAge` relative to `now`. Non-recursive and error-tolerant:
     /// a file that cannot be inspected or removed is skipped. Returns the
@@ -293,11 +332,12 @@ public final class Logger {
     }
 
     private func writeToFile(level: LogLevel, _ message: String) {
-        let logEntry = Logger.formatLine(level: level, message: message, date: Date(), formatter: dateFormatter) + "\n"
-
-        if let data = logEntry.data(using: .utf8) {
-            fileHandle?.write(data)
-        }
+        // Every physical line in the file carries its own stamp and level: a
+        // message with embedded newlines is written as one record per line,
+        // and blank lines are dropped, so nothing in the file is ever unstamped.
+        let entry = Logger.fileLines(level: level, message: message, date: Date(), formatter: dateFormatter)
+        guard !entry.isEmpty, let data = (entry.joined(separator: "\n") + "\n").data(using: .utf8) else { return }
+        fileHandle?.write(data)
     }
 
     private func writeToOSLog(level: LogLevel, message: String) {

@@ -112,13 +112,11 @@ public final class ScriptManager {
         let outputData = outputPipe.fileHandleForReading.readDataToEndOfFile()
         let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
         
-        if let stdout = String(data: outputData, encoding: .utf8), !stdout.isEmpty {
-            Logger.debug("Script stdout: \(stdout.trimmingCharacters(in: .whitespacesAndNewlines))")
-        }
-        
-        if let stderr = String(data: errorData, encoding: .utf8), !stderr.isEmpty {
-            Logger.debug("Script stderr: \(stderr.trimmingCharacters(in: .whitespacesAndNewlines))")
-        }
+        Logger.output(
+            from: item.file,
+            stdout: String(data: outputData, encoding: .utf8),
+            stderr: String(data: errorData, encoding: .utf8)
+        )
         
         let exitCode = task.terminationStatus
         
