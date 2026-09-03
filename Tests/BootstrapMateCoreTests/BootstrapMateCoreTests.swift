@@ -441,7 +441,13 @@ struct LoggerTests {
 
         let path = try #require(Logger.getLogFilePath())
         #expect(path.hasPrefix(directory))
-        #expect((path as NSString).lastPathComponent.range(of: #"^\d{4}-\d{2}-\d{2}-\d{6}\.log$"#, options: .regularExpression) != nil)
+        // The run's log lives in its session directory: logs/YYYY-MM-DD/HHMMSS/bootstrap.log.
+        let relative = String(path.dropFirst(directory.count + 1))
+        #expect(relative.range(of: #"^\d{4}-\d{2}-\d{2}/\d{6}(_\d)?/bootstrap\.log$"#, options: .regularExpression) != nil,
+                "unexpected log path: \(relative)")
+        let sessionDirectory = (path as NSString).deletingLastPathComponent
+        #expect(FileManager.default.fileExists(atPath: sessionDirectory + "/events.jsonl"))
+        #expect(FileManager.default.fileExists(atPath: sessionDirectory + "/session.json"))
 
         let content = try String(contentsOfFile: path, encoding: .utf8)
         let lines = content.split(separator: "\n").map(String.init)
@@ -492,5 +498,85 @@ struct LoggerTests {
     func retentionMissingDirectory() {
         let missing = NSTemporaryDirectory() + "bootstrapmate-missing-" + UUID().uuidString
         #expect(Logger.pruneLogFiles(in: missing, olderThan: Logger.retentionInterval) == 0)
+    }
+}
+
+// MARK: - SessionLog Tests
+
+@Suite("SessionLog Tests")
+struct SessionLogTests {
+
+    private func temporaryLogs() -> String {
+        let path = NSTemporaryDirectory() + "bootstrapmate-session-" + UUID().uuidString
+        try? FileManager.default.createDirectory(atPath: path, withIntermediateDirectories: true)
+        return path
+    }
+
+    @Test("A run writes its files into logs/YYYY-MM-DD/HHMMSS")
+    func sessionDirectoryIsSecondResolution() throws {
+        let logs = temporaryLogs()
+        let start = SessionLog.formatter("yyyy-MM-dd HH:mm:ss").date(from: "2026-09-03 04:11:07")!
+        let session = try #require(SessionLog(logsDirectory: logs, version: "2026.09.03.0411", runType: "provisioning", start: start))
+
+        #expect(session.sessionId == "2026-09-03-041107")
+        #expect(session.sessionDir == logs + "/2026-09-03/041107")
+        #expect(session.logFilePath.hasSuffix("/041107/bootstrap.log"))
+
+        session.append(level: "INFO", message: "[SUCCESS] Installed Google Chrome", date: start)
+        session.append(level: "ERROR", message: "postinstall returned 1", date: start)
+        session.finish(end: start.addingTimeInterval(45))
+
+        let events = try String(contentsOfFile: session.sessionDir + "/events.jsonl", encoding: .utf8)
+            .split(separator: "\n").map(String.init)
+        #expect(events.count == 2)
+        let first = try #require(try JSONSerialization.jsonObject(with: Data(events[0].utf8)) as? [String: Any])
+        #expect(first["event_type"] as? String == "item")
+        #expect(first["status"] as? String == "SUCCESS")
+        #expect(first["message"] as? String == "Installed Google Chrome")
+        #expect(first["session_id"] as? String == "2026-09-03-041107")
+
+        let record = try #require(try JSONSerialization.jsonObject(
+            with: Data(contentsOf: URL(fileURLWithPath: session.sessionDir + "/session.json"))) as? [String: Any])
+        #expect(record["status"] as? String == "partial_failure")
+        #expect(record["duration_seconds"] as? Int == 45)
+        #expect(record["tool_version"] as? String == "2026.09.03.0411")
+        let summary = try #require(record["summary"] as? [String: Any])
+        #expect(summary["errors"] as? Int == 1)
+        #expect(summary["events"] as? Int == 2)
+    }
+
+    @Test("A second run in the same second gets a suffix")
+    func sameSecondCollision() throws {
+        let logs = temporaryLogs()
+        let start = SessionLog.formatter("yyyy-MM-dd HH:mm:ss").date(from: "2026-09-03 04:11:07")!
+        _ = try #require(SessionLog(logsDirectory: logs, version: "v", runType: "provisioning", start: start))
+        let second = try #require(SessionLog(logsDirectory: logs, version: "v", runType: "provisioning", start: start))
+        #expect(second.sessionId == "2026-09-03-041107_2")
+    }
+
+    @Test("A tagged message becomes an event type and status")
+    func classification() {
+        #expect(SessionLog.classify(level: "INFO", message: "[PROGRESS] Installing: Chrome").0 == "progress")
+        #expect(SessionLog.classify(level: "INFO", message: "[PROGRESS] Installing: Chrome").1 == "PROGRESS")
+        #expect(SessionLog.classify(level: "INFO", message: "[SKIPPED] Already current").1 == "SKIPPED")
+        #expect(SessionLog.classify(level: "ERROR", message: "download failed").1 == "FAILED")
+        #expect(SessionLog.classify(level: "INFO", message: "[OUTPUT] preinstall: hello").2 == "preinstall: hello")
+        // An unknown bracket is left in the message rather than invented into a type.
+        #expect(SessionLog.classify(level: "INFO", message: "[MDM] enrolled").2 == "[MDM] enrolled")
+    }
+
+    @Test("Retention removes day directories past the window")
+    func retentionRemovesOldDays() throws {
+        let logs = temporaryLogs()
+        let now = SessionLog.formatter("yyyy-MM-dd HH:mm:ss").date(from: "2026-09-03 04:11:07")!
+        let fm = FileManager.default
+        for day in ["2026-07-01", "2026-08-30", "2026-09-03"] {
+            try fm.createDirectory(atPath: logs + "/" + day + "/120000", withIntermediateDirectories: true)
+        }
+
+        let removed = SessionLog.prune(logsDirectory: logs, now: now)
+
+        #expect(removed == 1)
+        #expect(Set(try fm.contentsOfDirectory(atPath: logs)) == ["2026-08-30", "2026-09-03"])
     }
 }
