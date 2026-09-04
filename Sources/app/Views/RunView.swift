@@ -67,7 +67,7 @@ struct RunView: View {
             Button {
                 startRun()
             } label: {
-                Label("Run BootstrapMate", systemImage: "play.fill")
+                Label("Run Managed Bootstrap Install", systemImage: "play.fill")
             }
             .buttonStyle(.glassProminent)
             .tint(.green)
@@ -77,7 +77,7 @@ struct RunView: View {
             Button {
                 startRun()
             } label: {
-                Label("Run BootstrapMate", systemImage: "play.fill")
+                Label("Run Managed Bootstrap Install", systemImage: "play.fill")
             }
             .controlSize(.large)
             .disabled(xpcClient.helperStatus != .registered)
