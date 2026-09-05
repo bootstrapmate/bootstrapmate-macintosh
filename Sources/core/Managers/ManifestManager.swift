@@ -102,7 +102,7 @@ public final class ManifestManager {
         let path = item.file
         let expectedHash = item.hash
 
-        if let arch = item.skipIf, shouldSkip(arch: arch) {
+        if let arch = item.skipIf, ArchitectureSkip.shouldSkip(arch) {
             Logger.log("Skipping \(item.name ?? path) due to skip_if: \(arch)")
             return true
         }
@@ -179,34 +179,6 @@ public final class ManifestManager {
 
         let digest = hasher.finalize()
         return digest.map { String(format: "%02x", $0) }.joined()
-    }
-
-    private func shouldSkip(arch: String) -> Bool {
-        let isArm = arch.contains("arm") || arch.contains("apple_silicon")
-        let isIntel = arch.contains("x86_64") || arch.contains("intel")
-        let currentArch = localArch()
-
-        if isArm && currentArch == "arm64" {
-            return false
-        } else if isArm && currentArch == "x86_64" {
-            return true
-        } else if isIntel && currentArch == "arm64" {
-            return true
-        } else if isIntel && currentArch == "x86_64" {
-            return false
-        }
-        return false
-    }
-
-    private func localArch() -> String {
-        var systemInfo = utsname()
-        uname(&systemInfo)
-        let machineMirror = Mirror(reflecting: systemInfo.machine)
-        let chars = machineMirror.children.compactMap { $0.value as? Int8 }
-            .filter { $0 != 0 }
-            .map { Character(UnicodeScalar(UInt8($0))) }
-        let identifier = String(chars)
-        return identifier.contains("arm64") ? "arm64" : "x86_64"
     }
 }
 

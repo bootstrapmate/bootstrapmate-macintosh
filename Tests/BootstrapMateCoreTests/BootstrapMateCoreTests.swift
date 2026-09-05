@@ -580,3 +580,44 @@ struct SessionLogTests {
         #expect(Set(try fm.contentsOfDirectory(atPath: logs)) == ["2026-08-30", "2026-09-03"])
     }
 }
+
+// MARK: - ArchitectureSkip Tests
+
+@Suite("ArchitectureSkip Tests")
+struct ArchitectureSkipTests {
+
+    @Test("An item is skipped on the architecture its skipIf names")
+    func skipsNamedArchitecture() {
+        #expect(ArchitectureSkip.shouldSkip("arm64", currentArch: "arm64") == true)
+        #expect(ArchitectureSkip.shouldSkip("apple_silicon", currentArch: "arm64") == true)
+        #expect(ArchitectureSkip.shouldSkip("x86_64", currentArch: "x86_64") == true)
+        #expect(ArchitectureSkip.shouldSkip("intel", currentArch: "x86_64") == true)
+    }
+
+    @Test("An item runs on the other architecture")
+    func runsOnOtherArchitecture() {
+        #expect(ArchitectureSkip.shouldSkip("arm64", currentArch: "x86_64") == false)
+        #expect(ArchitectureSkip.shouldSkip("apple_silicon", currentArch: "x86_64") == false)
+        #expect(ArchitectureSkip.shouldSkip("x86_64", currentArch: "arm64") == false)
+        #expect(ArchitectureSkip.shouldSkip("intel", currentArch: "arm64") == false)
+    }
+
+    @Test("Matching is case-insensitive")
+    func caseInsensitive() {
+        #expect(ArchitectureSkip.shouldSkip("ARM64", currentArch: "arm64") == true)
+        #expect(ArchitectureSkip.shouldSkip("Intel", currentArch: "x86_64") == true)
+        #expect(ArchitectureSkip.shouldSkip("Apple_Silicon", currentArch: "x86_64") == false)
+    }
+
+    @Test("An unrecognized value never skips")
+    func unknownValueRuns() {
+        #expect(ArchitectureSkip.shouldSkip("", currentArch: "arm64") == false)
+        #expect(ArchitectureSkip.shouldSkip("ppc", currentArch: "arm64") == false)
+        #expect(ArchitectureSkip.shouldSkip("ppc", currentArch: "x86_64") == false)
+    }
+
+    @Test("The current architecture is one of the two we support")
+    func currentArchitectureIsKnown() {
+        #expect(["arm64", "x86_64"].contains(ArchitectureSkip.currentArchitecture()))
+    }
+}
