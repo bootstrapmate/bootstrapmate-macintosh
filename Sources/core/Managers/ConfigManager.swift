@@ -37,6 +37,8 @@ public struct BootstrapMateConfig {
     public var dialogIcon: String?
     public var blurScreen: Bool
     public var networkTimeout: Int
+    // Userland: how long to wait for a console user before skipping the stage
+    public var userlandLoginTimeout: Int
     
     public init(
         jsonUrl: String? = nil,
@@ -60,7 +62,8 @@ public struct BootstrapMateConfig {
         dialogMessage: String = "Please wait while we configure your device...",
         dialogIcon: String? = nil,
         blurScreen: Bool = false,
-        networkTimeout: Int = 120
+        networkTimeout: Int = 120,
+        userlandLoginTimeout: Int = 3600
     ) {
         self.jsonUrl = jsonUrl
         self.authorizationHeader = authorizationHeader
@@ -84,6 +87,7 @@ public struct BootstrapMateConfig {
         self.dialogIcon = dialogIcon
         self.blurScreen = blurScreen
         self.networkTimeout = networkTimeout
+        self.userlandLoginTimeout = userlandLoginTimeout
     }
 }
 
@@ -456,6 +460,16 @@ public final class ConfigManager {
             config.networkTimeout = value
         }
 
+        // Userland: seconds to wait for a console user before skipping the
+        // stage. 0 or negative means wait indefinitely.
+        let loginTimeoutKeys = ["userlandLoginTimeout", "UserlandLoginTimeout"]
+        for key in loginTimeoutKeys {
+            if let value = CFPreferencesCopyAppValue(key as CFString, cfDomain) as? Int {
+                config.userlandLoginTimeout = value
+                break
+            }
+        }
+
         return config.jsonUrl != nil
     }
     
@@ -521,6 +535,7 @@ public final class ConfigManager {
         Logger.debug("  dialogIcon: \(config.dialogIcon ?? "default")")
         Logger.debug("  blurScreen: \(config.blurScreen)")
         Logger.debug("  networkTimeout: \(config.networkTimeout)")
+        Logger.debug("  userlandLoginTimeout: \(config.userlandLoginTimeout)")
     }
 }
 

@@ -271,9 +271,9 @@ struct BootstrapMate: ParsableCommand {
         // Handle userscript-only mode
         if effectiveConfig.userscriptOnly {
             Logger.info("Running in userscript-only mode")
-            ScriptManager.shared.runUserScriptOnly()
+            let userscriptSuccess = ScriptManager.shared.runUserScriptOnly()
             Logger.writeSessionSummary()
-            Foundation.exit(0)
+            Foundation.exit(userscriptSuccess ? 0 : 1)
         }
         
         // Run all stages

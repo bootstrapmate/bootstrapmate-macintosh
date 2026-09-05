@@ -271,9 +271,20 @@ public final class IAOrchestrator {
         StatusManager.shared.setPhaseStatus(phase: .userland, stage: .starting)
         DialogManager.shared.notifyPhaseStarted(phase: "Userland")
         
-        // Wait for user session
-        waitForUserSession()
-        
+        // Wait for user session. A machine nobody logs into (a spare, a lab Mac
+        // imaged ahead of term) must still finish the run and report, so the
+        // wait is bounded and the stage is recorded as skipped on expiry.
+        guard waitForUserSession() else {
+            Logger.writeSkipped("Userland stage - no user logged in before the timeout expired")
+            DialogManager.shared.updateProgressText(text: "No user logged in - skipping userland setup")
+            StatusManager.shared.setPhaseStatus(
+                phase: .userland,
+                stage: .skipped,
+                errorMessage: "No user logged in before the login timeout expired"
+            )
+            return false
+        }
+
         StatusManager.shared.setPhaseStatus(phase: .userland, stage: .running)
         
         // Add all items to dialog
@@ -405,9 +416,18 @@ public final class IAOrchestrator {
             DialogManager.shared.notifyPackageFailure(packageName: displayName, error: "Download failed")
             return false
         }
-        
-        let success = ScriptManager.shared.runScript(item)
-        
+
+        // A userscript has to run in the console user's context. Falling back to
+        // root would silently put per-user work in root's home and defaults
+        // domain while still reporting success, so fail the item instead.
+        guard let consoleUser = SessionManager.shared.getValidConsoleUser() else {
+            Logger.writeError("\(displayName) failed - no console user to run as")
+            DialogManager.shared.notifyPackageFailure(packageName: displayName, error: "No console user")
+            return false
+        }
+
+        let success = ScriptManager.shared.runAsUser(item, uid: consoleUser.uid, username: consoleUser.username)
+
         if success {
             Logger.writeSuccess("\(displayName) completed")
             DialogManager.shared.notifyPackageSuccess(packageName: displayName)
@@ -415,10 +435,10 @@ public final class IAOrchestrator {
             Logger.writeError("\(displayName) failed")
             DialogManager.shared.notifyPackageFailure(packageName: displayName, error: "Script failed")
         }
-        
+
         return success
     }
-    
+
     // MARK: - Helper Methods
     
     private func countTotalPackages(_ manifest: BootstrapManifest) -> Int {
@@ -429,25 +449,34 @@ public final class IAOrchestrator {
         return count
     }
     
-    private func waitForUserSession() {
-        Logger.info("Waiting for user session...")
+    /// Wait for a real console user to log in, bounded by the
+    /// `userlandLoginTimeout` managed preference (0 or negative waits forever).
+    /// Returns false when the wait expired with nobody logged in.
+    private func waitForUserSession() -> Bool {
+        let timeout = TimeInterval(ConfigManager.shared.config.userlandLoginTimeout)
+        let deadline: Date? = timeout > 0 ? Date().addingTimeInterval(timeout) : nil
+
+        if deadline != nil {
+            Logger.info("Waiting for user session (timeout: \(Int(timeout))s)...")
+        } else {
+            Logger.info("Waiting for user session (no timeout configured)...")
+        }
         DialogManager.shared.updateProgressText(text: "Waiting for user to log in...")
-        
+
         while true {
-            let (username, uid) = SessionManager.shared.getConsoleUser()
-            
             // Skip system users
-            if let user = username,
-               user != "loginwindow",
-               user != "_mbsetupuser",
-               user != "root",
-               !user.hasPrefix("_") {
-                Logger.success("User session detected: \(user) (uid: \(uid ?? 0))")
-                DialogManager.shared.updateProgressText(text: "User \(user) logged in, continuing...")
+            if let consoleUser = SessionManager.shared.getValidConsoleUser() {
+                Logger.success("User session detected: \(consoleUser.username) (uid: \(consoleUser.uid))")
+                DialogManager.shared.updateProgressText(text: "User \(consoleUser.username) logged in, continuing...")
                 Thread.sleep(forTimeInterval: 2) // Brief delay for UI stability
-                return
+                return true
             }
-            
+
+            if let deadline = deadline, Date() >= deadline {
+                Logger.warning("No user logged in after \(Int(timeout))s - giving up on the userland stage")
+                return false
+            }
+
             Logger.debug("No valid user session yet, waiting...")
             Thread.sleep(forTimeInterval: 2)
         }
