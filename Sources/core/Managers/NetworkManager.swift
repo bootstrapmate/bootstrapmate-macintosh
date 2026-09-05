@@ -5,6 +5,17 @@ enum DownloadError: Error {
     case requestFailed(String)
 }
 
+extension DownloadError: LocalizedError {
+    var errorDescription: String? {
+        switch self {
+        case .invalidURL:
+            return "Invalid URL."
+        case .requestFailed(let message):
+            return message
+        }
+    }
+}
+
 public final class NetworkManager {
     nonisolated(unsafe) public static let shared = NetworkManager()
 
@@ -60,9 +71,26 @@ public final class NetworkManager {
         // which is read-only during Setup Assistant. Route through the shared
         // no-cache session so manifest and artifact bytes always reflect origin
         // truth (a stale cached payload would defeat the per-item hash check).
-        let task = Self.noCacheSession.dataTask(with: request) { data, _, error in
+        let task = Self.noCacheSession.dataTask(with: request) { data, response, error in
             if let error = error {
                 completion(.failure(error))
+                return
+            }
+            // A non-2xx response still carries a body — a 404 page, a CDN error
+            // document, an auth challenge. Writing that to the destination makes a
+            // broken URL look like a hash mismatch (or, for an item with no hash,
+            // hands the installer an HTML error page), so fail the download here
+            // and name the status and the URL.
+            if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
+                let detail: String
+                switch http.statusCode {
+                case 401, 403:
+                    detail = "HTTP \(http.statusCode) (unauthorized — the origin is private and the request carried no valid Authorization header)"
+                default:
+                    detail = "HTTP \(http.statusCode)"
+                }
+                Logger.error("Download failed: \(detail) for \(urlString)")
+                completion(.failure(DownloadError.requestFailed("\(detail) for \(urlString)")))
                 return
             }
             guard let data = data else {

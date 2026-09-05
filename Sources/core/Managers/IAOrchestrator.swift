@@ -153,49 +153,77 @@ public final class IAOrchestrator {
         StatusManager.shared.setPhaseStatus(phase: .preflight, stage: .running)
         DialogManager.shared.notifyPhaseStarted(phase: "Preflight")
         
-        // Preflight only supports a single rootscript per InstallApplications spec
-        guard let firstScript = items.first(where: { $0.type == "rootscript" }) else {
+        // Preflight runs rootscripts only, per the InstallApplications spec. Any
+        // other item type in this stage is ignored — name it rather than dropping
+        // it silently, so a mistyped manifest is visible in the log.
+        for item in items where item.type != "rootscript" {
+            Logger.warning("Ignoring preflight item \(item.name ?? item.file): preflight supports rootscript only (type: \(item.type))")
+        }
+
+        let scripts = items.filter { $0.type == "rootscript" }
+        guard !scripts.isEmpty else {
             Logger.info("No preflight rootscript found, continuing with bootstrap")
             StatusManager.shared.setPhaseStatus(phase: .preflight, stage: .skipped)
             return .continueBootstrap
         }
-        
-        let displayName = firstScript.name ?? firstScript.file
-        DialogManager.shared.addListItem(name: displayName, status: .pending)
-        
-        Logger.writeProgress("Running preflight script", displayName)
-        DialogManager.shared.updateListItem(name: displayName, status: .wait, statusText: "Running...")
-        
-        // Download if needed
-        if !ManifestManager.shared.downloadIfNeeded(firstScript) {
-            Logger.error("Failed to download preflight script: \(displayName)")
-            DialogManager.shared.notifyPackageFailure(packageName: displayName, error: "Download failed")
-            StatusManager.shared.setPhaseStatus(phase: .preflight, stage: .failed, errorMessage: "Download failed")
-            return .failed
+
+        // Add all scripts to dialog
+        for script in scripts {
+            DialogManager.shared.addListItem(name: script.name ?? script.file, status: .pending)
         }
-        
-        // Run the script and capture exit code
-        let exitCode = ScriptManager.shared.runScriptWithExitCode(firstScript)
-        
-        if exitCode == 0 {
-            // Exit 0 = Skip bootstrap, machine is already configured
-            Logger.success("Preflight script exited 0 - skipping bootstrap")
-            DialogManager.shared.updateListItem(name: displayName, status: .success, statusText: "Already configured")
-            StatusManager.shared.setPhaseStatus(phase: .preflight, stage: .completed, exitCode: 0)
-            return .skipBootstrap
-        } else if exitCode > 0 {
-            // Exit 1+ = Continue with bootstrap
-            Logger.info("Preflight script exited \(exitCode) - continuing with bootstrap")
-            DialogManager.shared.updateListItem(name: displayName, status: .success, statusText: "Continue setup")
-            StatusManager.shared.setPhaseStatus(phase: .preflight, stage: .completed, exitCode: Int(exitCode))
-            return .continueBootstrap
-        } else {
-            // Negative exit code = error
-            Logger.error("Preflight script failed with exit code \(exitCode)")
-            DialogManager.shared.notifyPackageFailure(packageName: displayName, error: "Exit code: \(exitCode)")
-            StatusManager.shared.setPhaseStatus(phase: .preflight, stage: .failed, errorMessage: "Exit code: \(exitCode)", exitCode: Int(exitCode))
-            return .failed
+
+        // Run every script in manifest order. The short-circuits are unchanged,
+        // now applied per item: exit 0 skips the rest of the bootstrap, a download
+        // error or a negative exit code fails the stage, and exit 1+ moves on to
+        // the next script.
+        var lastExitCode: Int32 = 1
+
+        for script in scripts {
+            let displayName = script.name ?? script.file
+
+            // Check architecture skip condition
+            if let skipIf = script.skipIf, ArchitectureSkip.shouldSkip(skipIf) {
+                Logger.writeSkipped("\(displayName) (architecture: \(skipIf))")
+                DialogManager.shared.notifyPackageSkipped(packageName: displayName, reason: "Not for this architecture")
+                continue
+            }
+
+            Logger.writeProgress("Running preflight script", displayName)
+            DialogManager.shared.updateListItem(name: displayName, status: .wait, statusText: "Running...")
+
+            // Download if needed
+            if !ManifestManager.shared.downloadIfNeeded(script) {
+                Logger.error("Failed to download preflight script: \(displayName)")
+                DialogManager.shared.notifyPackageFailure(packageName: displayName, error: "Download failed")
+                StatusManager.shared.setPhaseStatus(phase: .preflight, stage: .failed, errorMessage: "Download failed")
+                return .failed
+            }
+
+            // Run the script and capture exit code
+            let exitCode = ScriptManager.shared.runScriptWithExitCode(script)
+            lastExitCode = exitCode
+
+            if exitCode == 0 {
+                // Exit 0 = Skip bootstrap, machine is already configured
+                Logger.success("Preflight script exited 0 - skipping bootstrap")
+                DialogManager.shared.updateListItem(name: displayName, status: .success, statusText: "Already configured")
+                StatusManager.shared.setPhaseStatus(phase: .preflight, stage: .completed, exitCode: 0)
+                return .skipBootstrap
+            } else if exitCode > 0 {
+                // Exit 1+ = Continue with bootstrap
+                Logger.info("Preflight script exited \(exitCode) - continuing with bootstrap")
+                DialogManager.shared.updateListItem(name: displayName, status: .success, statusText: "Continue setup")
+            } else {
+                // Negative exit code = error
+                Logger.error("Preflight script failed with exit code \(exitCode)")
+                DialogManager.shared.notifyPackageFailure(packageName: displayName, error: "Exit code: \(exitCode)")
+                StatusManager.shared.setPhaseStatus(phase: .preflight, stage: .failed, errorMessage: "Exit code: \(exitCode)", exitCode: Int(exitCode))
+                return .failed
+            }
         }
+
+        StatusManager.shared.setPhaseStatus(phase: .preflight, stage: .completed, exitCode: Int(lastExitCode))
+        return .continueBootstrap
     }
     
     // MARK: - Setup Assistant Stage
@@ -217,7 +245,7 @@ public final class IAOrchestrator {
             let displayName = item.name ?? item.file
             
             // Check architecture skip condition
-            if let skipIf = item.skipIf, shouldSkipForArchitecture(skipIf) {
+            if let skipIf = item.skipIf, ArchitectureSkip.shouldSkip(skipIf) {
                 Logger.writeSkipped("\(displayName) (architecture: \(skipIf))")
                 DialogManager.shared.notifyPackageSkipped(packageName: displayName, reason: "Not for this architecture")
                 continue
@@ -260,7 +288,7 @@ public final class IAOrchestrator {
             let displayName = item.name ?? item.file
             
             // Check architecture skip condition
-            if let skipIf = item.skipIf, shouldSkipForArchitecture(skipIf) {
+            if let skipIf = item.skipIf, ArchitectureSkip.shouldSkip(skipIf) {
                 Logger.writeSkipped("\(displayName) (architecture: \(skipIf))")
                 DialogManager.shared.notifyPackageSkipped(packageName: displayName, reason: "Not for this architecture")
                 continue
@@ -399,34 +427,6 @@ public final class IAOrchestrator {
         if let setup = manifest.setupassistant { count += setup.count }
         if let userland = manifest.userland { count += userland.count }
         return count
-    }
-    
-    private func shouldSkipForArchitecture(_ skipIf: String) -> Bool {
-        let currentArch = getCurrentArchitecture()
-        let skipLower = skipIf.lowercased()
-        
-        // ARM-based skip conditions
-        if (skipLower.contains("arm") || skipLower.contains("apple_silicon")) && currentArch == "arm64" {
-            return true
-        }
-        
-        // Intel-based skip conditions
-        if (skipLower.contains("x86_64") || skipLower.contains("intel")) && currentArch == "x86_64" {
-            return true
-        }
-        
-        return false
-    }
-    
-    private func getCurrentArchitecture() -> String {
-        var systemInfo = utsname()
-        uname(&systemInfo)
-        let machineMirror = Mirror(reflecting: systemInfo.machine)
-        let chars = machineMirror.children.compactMap { $0.value as? Int8 }
-            .filter { $0 != 0 }
-            .map { Character(UnicodeScalar(UInt8($0))) }
-        let identifier = String(chars)
-        return identifier.contains("arm64") ? "arm64" : "x86_64"
     }
     
     private func waitForUserSession() {
