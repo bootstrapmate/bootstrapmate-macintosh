@@ -201,9 +201,11 @@ jobs:
           APP="$ROOT/Applications/Utilities/BootstrapMate.app"
           sign() { codesign --force --options runtime --timestamp --keychain "$KEYCHAIN" \
                      --sign "$SIGNING_IDENTITY_APP" "$@"; }
+          # BootstrapMateGUI is the bundle's main executable, so signing it signs
+          # the bundle, which needs every other executable in it signed first.
           sign --identifier com.github.bootstrapmate.managedbootstrapinstall "$APP/Contents/MacOS/managedbootstrapinstall"
-          sign --identifier com.github.bootstrapmate.gui    "$APP/Contents/MacOS/BootstrapMateGUI"
           sign --identifier com.github.bootstrapmate.helper "$APP/Contents/MacOS/BootstrapMateHelper"
+          sign --identifier com.github.bootstrapmate.gui    "$APP/Contents/MacOS/BootstrapMateGUI"
           sign --deep "$APP"
           codesign --verify --strict --deep --verbose=2 "$APP"
 
