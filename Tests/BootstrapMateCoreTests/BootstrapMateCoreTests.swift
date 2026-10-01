@@ -621,3 +621,45 @@ struct ArchitectureSkipTests {
         #expect(["arm64", "x86_64"].contains(ArchitectureSkip.currentArchitecture()))
     }
 }
+
+// MARK: - PreflightDecision Tests
+
+@Suite("PreflightDecision Tests")
+struct PreflightDecisionTests {
+
+    @Test("Exit 0 skips the bootstrap")
+    func exitZeroSkips() {
+        #expect(PreflightDecision.from(exitCode: 0) == .skip)
+    }
+
+    @Test("Exit 2 selects baseline mode")
+    func exitTwoIsBaseline() {
+        #expect(PreflightDecision.baselineExitCode == 2)
+        #expect(PreflightDecision.from(exitCode: 2) == .baseline)
+    }
+
+    @Test("Other positive exits run the full bootstrap")
+    func positiveExitsProvision() {
+        #expect(PreflightDecision.from(exitCode: 1) == .provision)
+        #expect(PreflightDecision.from(exitCode: 3) == .provision)
+        #expect(PreflightDecision.from(exitCode: 255) == .provision)
+    }
+
+    @Test("Negative exits fail the stage")
+    func negativeExitsFail() {
+        #expect(PreflightDecision.from(exitCode: -1) == .failed)
+    }
+
+    @Test("Items run in baseline unless they opt out")
+    func baselineOptOut() throws {
+        let json = """
+        [
+          {"file": "/tmp/a.pkg", "hash": "h", "url": "https://example.com/a.pkg", "type": "package"},
+          {"file": "/tmp/b.sh", "hash": "h", "url": "https://example.com/b.sh", "type": "rootscript", "baseline": false}
+        ]
+        """
+        let items = try JSONDecoder().decode([ManifestItem].self, from: Data(json.utf8))
+        #expect(items[0].runsInBaseline == true)
+        #expect(items[1].runsInBaseline == false)
+    }
+}

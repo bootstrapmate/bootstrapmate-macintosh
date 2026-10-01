@@ -107,6 +107,20 @@ make build \
   NOTARIZATION_TEAM_ID="YOUR_TEAM_ID"
 ```
 
+## Preflight exit codes
+
+The preflight rootscript decides what the rest of the run does:
+
+| Exit code | Mode | What runs |
+|---|---|---|
+| `0` | Skip | Nothing. The run ends and the one-shot LaunchDaemon removes itself. |
+| `2` | Baseline | `setupassistant` items, with no SwiftDialog window, no `userland` stage and no reboot. |
+| any other positive | Provision | The full bootstrap: `setupassistant`, then `userland`. |
+
+Baseline mode is for a machine that is already provisioned and in use. It brings the tooling in the manifest back to the published versions without provisioning the machine again. Packages that carry `packageid` and `version` are skipped when that version or newer is installed, so a baseline run on a current machine installs nothing. An item leaves itself out of baseline runs with `"baseline": false`.
+
+The SwiftDialog window opens only after the preflight has chosen Provision, so Skip and Baseline runs never show one.
+
 ## Development
 
 ### Project Structure

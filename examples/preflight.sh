@@ -4,6 +4,8 @@
 # Exit codes:
 #   0 = Skip bootstrap (device already on production manifest)
 #   1 = Continue with bootstrap (device on provisioning manifest or new)
+#   2 = Baseline mode (already provisioned: refresh setupassistant items
+#       without a dialog and skip userland)
 #
 # This script runs BEFORE any packages are installed. Use it to:
 # - Check if device is on production vs provisioning manifest

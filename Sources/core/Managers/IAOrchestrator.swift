@@ -50,21 +50,13 @@ public final class IAOrchestrator {
         // Count total packages for progress
         let totalPackages = countTotalPackages(manifest)
         
-        // Initialize dialog if available and enabled
-        if config.enableDialog {
-            DialogManager.shared.initialize(
-                title: config.dialogTitle,
-                message: config.dialogMessage,
-                totalPackages: totalPackages,
-                icon: config.dialogIcon,
-                blurScreen: config.blurScreen
-            )
-        }
-        
         var success = true
         var preflightFailed = false
+        var baseline = false
 
-        // Phase 1: Preflight
+        // Phase 1: Preflight. It runs before the dialog exists: only a machine
+        // that is actually being provisioned gets a window, so a skipped or
+        // baseline run never puts one in front of a working user.
         if let preflight = manifest.preflight, !preflight.isEmpty {
             let preflightResult = runPreflightStage(preflight)
 
@@ -74,6 +66,8 @@ public final class IAOrchestrator {
                 StatusManager.shared.setPhaseStatus(phase: .preflight, stage: .completed)
                 cleanupAndExit(success: true)
                 return true
+            } else if preflightResult == .baseline {
+                baseline = true
             } else if preflightResult == .failed {
                 // A failed preflight (download error / negative exit) still gates the
                 // later phases, as it did before — only setupassistant *item* failures
@@ -83,11 +77,33 @@ public final class IAOrchestrator {
             }
         }
 
+        if baseline {
+            Logger.info("Baseline mode: refreshing setupassistant items without a dialog; userland is skipped.")
+        } else if config.enableDialog {
+            DialogManager.shared.initialize(
+                title: config.dialogTitle,
+                message: config.dialogMessage,
+                totalPackages: totalPackages,
+                icon: config.dialogIcon,
+                blurScreen: config.blurScreen
+            )
+            for script in manifest.preflight ?? [] where script.type == "rootscript" {
+                DialogManager.shared.addListItem(
+                    name: script.name ?? script.file,
+                    status: preflightFailed ? .fail : .success
+                )
+            }
+        }
+
         // Phase 2: Setup Assistant — record item failures but never let them abort
         // the run, so the user-facing userland phase still runs even when an
         // individual setup package fails to download or install.
         if !preflightFailed, let setupassistant = manifest.setupassistant, !setupassistant.isEmpty {
-            let setupSuccess = runSetupAssistantStage(setupassistant)
+            let items = baseline ? setupassistant.filter { $0.runsInBaseline } : setupassistant
+            for item in setupassistant where baseline && !item.runsInBaseline {
+                Logger.writeSkipped("\(item.name ?? item.file) (excluded from baseline)")
+            }
+            let setupSuccess = runSetupAssistantStage(items)
             success = success && setupSuccess
         }
 
@@ -95,7 +111,9 @@ public final class IAOrchestrator {
         // exist, regardless of setupassistant outcomes, so a single failed setup
         // package (e.g. SwiftDialog failing to download) cannot strand provisioning.
         // A failed preflight still skips it.
-        if !preflightFailed, let userland = manifest.userland, !userland.isEmpty {
+        if baseline {
+            StatusManager.shared.setPhaseStatus(phase: .userland, stage: .skipped)
+        } else if !preflightFailed, let userland = manifest.userland, !userland.isEmpty {
             let userlandSuccess = runUserlandStage(userland)
             success = success && userlandSuccess
         }
@@ -128,7 +146,8 @@ public final class IAOrchestrator {
         ReportManager.shared.sendRunSummary(success: success, startTime: startTime)
 
         // Handle reboot
-        if reboot && success {
+        // A baseline run lands on a machine someone is using — never reboot it.
+        if reboot && success && !baseline {
             Logger.info("Reboot requested, triggering in 5 seconds...")
             CleanupManager.shared.triggerReboot(after: 5)
         }
@@ -145,14 +164,14 @@ public final class IAOrchestrator {
     private enum PreflightResult {
         case continueBootstrap  // Exit code 1+ = continue with setup
         case skipBootstrap      // Exit code 0 = skip remaining stages
+        case baseline           // Exit code 2 = refresh tooling, no provisioning
         case failed             // Script execution failed
     }
     
     private func runPreflightStage(_ items: [ManifestItem]) -> PreflightResult {
         Logger.writeSection("Preflight Stage")
         StatusManager.shared.setPhaseStatus(phase: .preflight, stage: .running)
-        DialogManager.shared.notifyPhaseStarted(phase: "Preflight")
-        
+
         // Preflight runs rootscripts only, per the InstallApplications spec. Any
         // other item type in this stage is ignored — name it rather than dropping
         // it silently, so a mistyped manifest is visible in the log.
@@ -167,11 +186,6 @@ public final class IAOrchestrator {
             return .continueBootstrap
         }
 
-        // Add all scripts to dialog
-        for script in scripts {
-            DialogManager.shared.addListItem(name: script.name ?? script.file, status: .pending)
-        }
-
         // Run every script in manifest order. The short-circuits are unchanged,
         // now applied per item: exit 0 skips the rest of the bootstrap, a download
         // error or a negative exit code fails the stage, and exit 1+ moves on to
@@ -184,17 +198,14 @@ public final class IAOrchestrator {
             // Check architecture skip condition
             if let skipIf = script.skipIf, ArchitectureSkip.shouldSkip(skipIf) {
                 Logger.writeSkipped("\(displayName) (architecture: \(skipIf))")
-                DialogManager.shared.notifyPackageSkipped(packageName: displayName, reason: "Not for this architecture")
                 continue
             }
 
             Logger.writeProgress("Running preflight script", displayName)
-            DialogManager.shared.updateListItem(name: displayName, status: .wait, statusText: "Running...")
 
             // Download if needed
             if !ManifestManager.shared.downloadIfNeeded(script) {
                 Logger.error("Failed to download preflight script: \(displayName)")
-                DialogManager.shared.notifyPackageFailure(packageName: displayName, error: "Download failed")
                 StatusManager.shared.setPhaseStatus(phase: .preflight, stage: .failed, errorMessage: "Download failed")
                 return .failed
             }
@@ -203,20 +214,22 @@ public final class IAOrchestrator {
             let exitCode = ScriptManager.shared.runScriptWithExitCode(script)
             lastExitCode = exitCode
 
-            if exitCode == 0 {
+            switch PreflightDecision.from(exitCode: exitCode) {
+            case .skip:
                 // Exit 0 = Skip bootstrap, machine is already configured
                 Logger.success("Preflight script exited 0 - skipping bootstrap")
-                DialogManager.shared.updateListItem(name: displayName, status: .success, statusText: "Already configured")
                 StatusManager.shared.setPhaseStatus(phase: .preflight, stage: .completed, exitCode: 0)
                 return .skipBootstrap
-            } else if exitCode > 0 {
+            case .baseline:
+                Logger.success("Preflight script exited \(exitCode) - running in baseline mode")
+                StatusManager.shared.setPhaseStatus(phase: .preflight, stage: .completed, exitCode: Int(exitCode))
+                return .baseline
+            case .provision:
                 // Exit 1+ = Continue with bootstrap
                 Logger.info("Preflight script exited \(exitCode) - continuing with bootstrap")
-                DialogManager.shared.updateListItem(name: displayName, status: .success, statusText: "Continue setup")
-            } else {
+            case .failed:
                 // Negative exit code = error
                 Logger.error("Preflight script failed with exit code \(exitCode)")
-                DialogManager.shared.notifyPackageFailure(packageName: displayName, error: "Exit code: \(exitCode)")
                 StatusManager.shared.setPhaseStatus(phase: .preflight, stage: .failed, errorMessage: "Exit code: \(exitCode)", exitCode: Int(exitCode))
                 return .failed
             }
@@ -483,9 +496,6 @@ public final class IAOrchestrator {
     }
     
     private func cleanupAndExit(success: Bool) {
-        DialogManager.shared.complete(message: success ? "Device already configured" : "Setup failed")
-        Thread.sleep(forTimeInterval: 2)
-        DialogManager.shared.close()
         registerCleanupTasks()
         Logger.writeSessionSummary()
     }
