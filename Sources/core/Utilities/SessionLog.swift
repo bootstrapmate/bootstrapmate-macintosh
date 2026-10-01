@@ -102,6 +102,7 @@ public final class SessionLog {
     private let isoFormatter: ISO8601DateFormatter
     private var summary = SessionSummary()
     private var eventIndex = 0
+    private var finished = false
 
     /// Creates `logs/YYYY-MM-DD/HHMMSS/`, appending `_2` through `_9` when a
     /// previous run started in the same second. Returns nil when the directory
@@ -154,6 +155,9 @@ public final class SessionLog {
     /// `message` is the same text the human log carries, with any leading
     /// `[TAG]` lifted into the event's type and status.
     public func append(level: String, message: String, date: Date = Date()) {
+        // Lines can still arrive after the session closes (cleanup, a signal
+        // handler); writing to the closed handle would raise.
+        guard !finished else { return }
         let (eventType, status, text) = SessionLog.classify(level: level, message: message)
         switch level {
         case "ERROR": summary.errors += 1
@@ -184,6 +188,8 @@ public final class SessionLog {
 
     /// Rewrites session.json with the run's outcome.
     public func finish(status: String? = nil, end: Date = Date()) {
+        guard !finished else { return }
+        finished = true
         let resolved = status ?? (summary.errors > 0 ? "partial_failure" : "completed")
         writeSessionFile(status: resolved, end: end)
         try? eventsHandle?.close()

@@ -663,3 +663,31 @@ struct PreflightDecisionTests {
         #expect(items[1].runsInBaseline == false)
     }
 }
+
+// MARK: - InstallLedger Tests
+
+@Suite("InstallLedger Tests")
+struct InstallLedgerTests {
+
+    @Test("A recorded hash is found again, case-insensitively")
+    func recordsAndFinds() {
+        let path = NSTemporaryDirectory() + "ledger-\(UUID().uuidString)/installed.json"
+        defer { try? FileManager.default.removeItem(atPath: (path as NSString).deletingLastPathComponent) }
+        let ledger = InstallLedger(path: path)
+
+        #expect(ledger.contains(hash: "abc123") == false)
+        ledger.record(hash: "ABC123", name: "Example")
+        #expect(ledger.contains(hash: "abc123") == true)
+        #expect(InstallLedger(path: path).contains(hash: "other") == false)
+    }
+
+    @Test("An empty hash is never recorded or matched")
+    func ignoresEmptyHash() {
+        let path = NSTemporaryDirectory() + "ledger-\(UUID().uuidString)/installed.json"
+        defer { try? FileManager.default.removeItem(atPath: (path as NSString).deletingLastPathComponent) }
+        let ledger = InstallLedger(path: path)
+
+        ledger.record(hash: "", name: "Example")
+        #expect(ledger.contains(hash: "") == false)
+    }
+}

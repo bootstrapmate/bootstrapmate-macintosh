@@ -24,6 +24,9 @@ public final class IAOrchestrator {
     }
     
     public var config = OrchestratorConfig()
+
+    /// Set once the preflight has chosen baseline mode for this run.
+    private var baselineRun = false
     
     private init() {}
     
@@ -68,6 +71,7 @@ public final class IAOrchestrator {
                 return true
             } else if preflightResult == .baseline {
                 baseline = true
+                baselineRun = true
             } else if preflightResult == .failed {
                 // A failed preflight (download error / negative exit) still gates the
                 // later phases, as it did before — only setupassistant *item* failures
@@ -152,10 +156,10 @@ public final class IAOrchestrator {
             CleanupManager.shared.triggerReboot(after: 5)
         }
         
-        // Register cleanup tasks
-        registerCleanupTasks()
-        
+        // Close the session before cleanup: booting the daemon out signals this
+        // process, and a summary written afterwards never reaches the log.
         Logger.writeSessionSummary()
+        registerCleanupTasks()
         return success
     }
     
@@ -362,7 +366,13 @@ public final class IAOrchestrator {
             DialogManager.shared.notifyPackageSkipped(packageName: displayName)
             return true
         }
-        
+
+        // Baseline repeats on a machine in use: never reinstall the same file.
+        if baselineRun, InstallLedger().contains(hash: item.hash) {
+            Logger.writeSkipped("\(displayName) - this build was already installed by BootstrapMate")
+            return true
+        }
+
         // Download
         DialogManager.shared.notifyDownloadStarted(packageName: displayName)
         
@@ -387,6 +397,7 @@ public final class IAOrchestrator {
         )
         
         if installSuccess {
+            InstallLedger().record(hash: item.hash, name: displayName)
             Logger.writeSuccess("\(displayName) installed successfully")
             DialogManager.shared.notifyPackageSuccess(packageName: displayName)
         } else {
@@ -496,8 +507,8 @@ public final class IAOrchestrator {
     }
     
     private func cleanupAndExit(success: Bool) {
-        registerCleanupTasks()
         Logger.writeSessionSummary()
+        registerCleanupTasks()
     }
 }
 
