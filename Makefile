@@ -27,7 +27,7 @@ BINARY_NAME = managedbootstrapinstall
 GUI_BINARY_NAME = BootstrapMateGUI
 HELPER_BINARY_NAME = BootstrapMateHelper
 BINARY_INSTALL_PATH = usr/local/bootstrapmate
-APP_BUNDLE_PATH = Applications/Utilities/BootstrapMate.app
+APP_BUNDLE_PATH = Applications/Utilities/Managed Bootstrap Install.app
 APP_MACOS_DIR = $(PKG_ROOT)/$(APP_BUNDLE_PATH)/Contents/MacOS
 APP_RESOURCES_DIR = $(PKG_ROOT)/$(APP_BUNDLE_PATH)/Contents/Resources
 APP_HELPER_LD_DIR = $(PKG_ROOT)/$(APP_BUNDLE_PATH)/Contents/Library/LaunchDaemons
@@ -126,7 +126,7 @@ swift-build:
 
 copy-binary: swift-build
 	@echo "$(BLUE)Signing and copying binaries to app bundle...$(NC)"
-	@mkdir -p $(APP_MACOS_DIR)
+	@mkdir -p "$(APP_MACOS_DIR)"
 	
 	# Sign the CLI binary with hardened runtime before packaging
 	@codesign --force --sign "$(SIGNING_IDENTITY_APP)" \
@@ -150,12 +150,12 @@ copy-binary: swift-build
 		$(SWIFT_HELPER_BINARY)
 	
 	# Copy all binaries to app bundle MacOS directory
-	@cp $(SWIFT_BINARY) $(APP_MACOS_DIR)/$(BINARY_NAME)
-	@chmod 755 $(APP_MACOS_DIR)/$(BINARY_NAME)
-	@cp $(SWIFT_GUI_BINARY) $(APP_MACOS_DIR)/$(GUI_BINARY_NAME)
-	@chmod 755 $(APP_MACOS_DIR)/$(GUI_BINARY_NAME)
-	@cp $(SWIFT_HELPER_BINARY) $(APP_MACOS_DIR)/$(HELPER_BINARY_NAME)
-	@chmod 755 $(APP_MACOS_DIR)/$(HELPER_BINARY_NAME)
+	@cp $(SWIFT_BINARY) "$(APP_MACOS_DIR)/$(BINARY_NAME)"
+	@chmod 755 "$(APP_MACOS_DIR)/$(BINARY_NAME)"
+	@cp $(SWIFT_GUI_BINARY) "$(APP_MACOS_DIR)/$(GUI_BINARY_NAME)"
+	@chmod 755 "$(APP_MACOS_DIR)/$(GUI_BINARY_NAME)"
+	@cp $(SWIFT_HELPER_BINARY) "$(APP_MACOS_DIR)/$(HELPER_BINARY_NAME)"
+	@chmod 755 "$(APP_MACOS_DIR)/$(HELPER_BINARY_NAME)"
 	
 	# Create placeholder for symlink directory
 	@mkdir -p $(PKG_ROOT)/$(BINARY_INSTALL_PATH)
@@ -177,19 +177,19 @@ compile-icon:
 
 create-app-bundle: copy-binary compile-icon
 	@echo "$(BLUE)Creating app bundle...$(NC)"
-	@mkdir -p $(APP_RESOURCES_DIR)
-	@rm -rf $(APP_RESOURCES_DIR)/*
-	
+	@mkdir -p "$(APP_RESOURCES_DIR)"
+	@rm -rf "$(APP_RESOURCES_DIR)"/*
+
 	# Copy Info.plist template and substitute version placeholders
 	@sed -e 's/{{MARKETING_VERSION}}/$(MARKETING_VERSION)/g' \
 	     -e 's/{{BUILD_NUMBER}}/$(BUILD_NUMBER)/g' \
-	     $(PACKAGING_DIR)/resources/Info.plist.template > $(PKG_ROOT)/$(APP_BUNDLE_PATH)/Contents/Info.plist
-	
+	     $(PACKAGING_DIR)/resources/Info.plist.template > "$(PKG_ROOT)/$(APP_BUNDLE_PATH)/Contents/Info.plist"
+
 	# Copy compiled Assets.car (contains Liquid Glass icon for macOS 26+)
-	@cp $(ACTOOL_OUT)/Assets.car $(APP_RESOURCES_DIR)/Assets.car
-	
+	@cp $(ACTOOL_OUT)/Assets.car "$(APP_RESOURCES_DIR)/Assets.car"
+
 	# Copy .icns fallback (macOS 13–25) - composited by actool, not a raw layer PNG
-	@cp $(ACTOOL_OUT)/$(ICON_NAME).icns $(APP_RESOURCES_DIR)/$(ICON_NAME).icns
+	@cp $(ACTOOL_OUT)/$(ICON_NAME).icns "$(APP_RESOURCES_DIR)/$(ICON_NAME).icns"
 	
 	@echo "$(GREEN)✓ App bundle created$(NC)"
 
@@ -197,9 +197,9 @@ create-launchdaemon: create-app-bundle
 	@echo "$(BLUE)Copying LaunchDaemon plists...$(NC)"
 	@mkdir -p $(PKG_ROOT)/Library/LaunchDaemons
 	@mkdir -p $(SCRIPTS_DIR)
-	@mkdir -p $(APP_HELPER_LD_DIR)
+	@mkdir -p "$(APP_HELPER_LD_DIR)"
 	@cp $(PACKAGING_DIR)/LaunchDaemons/com.github.bootstrapmate.plist $(PKG_ROOT)/Library/LaunchDaemons/
-	@cp $(PACKAGING_DIR)/LaunchDaemons/com.github.bootstrapmate.helper.plist $(APP_HELPER_LD_DIR)/
+	@cp $(PACKAGING_DIR)/LaunchDaemons/com.github.bootstrapmate.helper.plist "$(APP_HELPER_LD_DIR)/"
 	@cp $(PACKAGING_DIR)/scripts/postinstall $(SCRIPTS_DIR)/
 	@chmod +x $(SCRIPTS_DIR)/postinstall
 	@echo "$(GREEN)✓ LaunchDaemon plists and scripts copied$(NC)"
@@ -210,7 +210,7 @@ sign-app: create-launchdaemon
 		--options runtime \
 		--timestamp \
 		--deep \
-		$(PKG_ROOT)/$(APP_BUNDLE_PATH)
+		"$(PKG_ROOT)/$(APP_BUNDLE_PATH)"
 	@echo "$(GREEN)✓ App bundle signed$(NC)"
 
 build-pkg: sign-app

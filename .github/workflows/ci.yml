@@ -60,7 +60,7 @@ jobs:
           BUILD_DIR=build
           PKG_ROOT=$BUILD_DIR/pkg-root
           PACKAGING_DIR=packaging
-          APP_PATH="$PKG_ROOT/Applications/Utilities/BootstrapMate.app"
+          APP_PATH="$PKG_ROOT/Applications/Utilities/Managed Bootstrap Install.app"
 
           # Create app bundle
           mkdir -p "$APP_PATH/Contents/MacOS"

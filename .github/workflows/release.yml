@@ -78,7 +78,7 @@ jobs:
           PACKAGING_DIR=packaging
           SWIFT_REL=.build/apple/Products/Release
           ACTOOL_OUT="$BUILD_DIR/actool-out"
-          APP="$PKG_ROOT/Applications/Utilities/BootstrapMate.app"
+          APP="$PKG_ROOT/Applications/Utilities/Managed Bootstrap Install.app"
           APP_MACOS="$APP/Contents/MacOS"
           APP_RES="$APP/Contents/Resources"
           APP_HELPER_LD="$APP/Contents/Library/LaunchDaemons"

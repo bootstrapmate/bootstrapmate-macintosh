@@ -66,7 +66,7 @@ struct SettingsView: View {
                 .aspectRatio(contentMode: .fit)
                 .frame(width: 72, height: 72)
 
-            Text("BootstrapMate")
+            Text("Managed Bootstrap Install")
                 .font(.largeTitle.bold())
 
             Text("Enterprise management tools provisioning for automated device setup using manifests.")
