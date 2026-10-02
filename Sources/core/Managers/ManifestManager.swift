@@ -205,4 +205,6 @@ public struct ManifestItem: Codable {
     public let expectedTeamID: String?
     /// Per-item override allowing an unsigned/untrusted package (falls back to config).
     public let allowUnsigned: Bool?
+    /// Set false to leave this item out of a baseline run (defaults to included).
+    public let baseline: Bool?
 }

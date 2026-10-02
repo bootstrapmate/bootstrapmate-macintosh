@@ -105,6 +105,9 @@ public final class ScriptManager {
         // Set environment
         var environment = ProcessInfo.processInfo.environment
         environment["PATH"] = "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+        // Lets a preflight script tell whether this build understands baseline
+        // mode before it returns the baseline exit code.
+        environment["BOOTSTRAPMATE_BASELINE_EXIT_CODE"] = String(PreflightDecision.baselineExitCode)
         task.environment = environment
         
         do {
@@ -131,6 +134,9 @@ public final class ScriptManager {
         // Set environment
         var environment = ProcessInfo.processInfo.environment
         environment["PATH"] = "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+        // Lets a preflight script tell whether this build understands baseline
+        // mode before it returns the baseline exit code.
+        environment["BOOTSTRAPMATE_BASELINE_EXIT_CODE"] = String(PreflightDecision.baselineExitCode)
         task.environment = environment
         
         // Capture output
