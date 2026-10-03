@@ -172,7 +172,7 @@ final class XPCClient: NSObject {
         { [weak self] in
             Task { @MainActor [weak self] in
                 self?.connection = nil
-                self?.connectionError = "Connection to helper was invalidated"
+                self?.reportConnectionFailure("Connection to helper was invalidated")
             }
         }
     }
@@ -180,8 +180,7 @@ final class XPCClient: NSObject {
     private nonisolated func makeInterruptionHandler() -> @Sendable () -> Void {
         { [weak self] in
             Task { @MainActor [weak self] in
-                self?.connectionError = "Connection to helper was interrupted"
-                self?.isRunning = false
+                self?.reportConnectionFailure("Connection to helper was interrupted")
             }
         }
     }
@@ -189,9 +188,18 @@ final class XPCClient: NSObject {
     private nonisolated func makeErrorHandler() -> @Sendable (any Error) -> Void {
         { [weak self] error in
             Task { @MainActor [weak self] in
-                self?.connectionError = error.localizedDescription
-                self?.isRunning = false
+                self?.reportConnectionFailure(error.localizedDescription)
             }
+        }
+    }
+
+    /// A failed connection during a run must show up in the run output; setting
+    /// connectionError alone left the window blank with nothing explaining why.
+    private func reportConnectionFailure(_ message: String) {
+        connectionError = message
+        if isRunning {
+            outputLines.append(OutputLine(text: "ERROR: \(message). The helper refused the connection or is not running; see the system log for com.github.bootstrapmate.helper.", level: .error))
+            isRunning = false
         }
     }
 
