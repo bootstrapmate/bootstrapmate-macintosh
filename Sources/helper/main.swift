@@ -7,15 +7,42 @@
 //
 
 import Foundation
+import os
+import Security
 import BootstrapMateCore
+
+private let log = Logger(subsystem: "com.github.bootstrapmate.helper", category: "xpc")
+
+/// The Team ID this helper is signed with. The GUI is signed by the same
+/// identity, so the helper trusts exactly its own team and needs no Team ID
+/// baked into the source. Nil when the helper is unsigned or ad-hoc signed.
+private let ownTeamID: String? = {
+    var selfCode: SecCode?
+    guard SecCodeCopySelf([], &selfCode) == errSecSuccess, let selfCode else { return nil }
+    var staticCode: SecStaticCode?
+    guard SecCodeCopyStaticCode(selfCode, [], &staticCode) == errSecSuccess, let staticCode else { return nil }
+    var info: CFDictionary?
+    guard SecCodeCopySigningInformation(staticCode, SecCSFlags(rawValue: kSecCSSigningInformation), &info) == errSecSuccess,
+          let dict = info as? [String: Any] else { return nil }
+    return dict[kSecCodeInfoTeamIdentifier as String] as? String
+}()
 
 final class HelperService: NSObject, NSXPCListenerDelegate, Sendable {
     func listener(
         _ listener: NSXPCListener,
         shouldAcceptNewConnection connection: NSXPCConnection
     ) -> Bool {
-        // Validate the connecting client is our signed GUI app
-        guard validateClient(connection) else { return false }
+        // Only a client signed by this helper's own team may connect.
+        guard let teamID = ownTeamID else {
+            log.error("Rejecting XPC client pid \(connection.processIdentifier): this helper has no Team ID (unsigned or ad-hoc build)")
+            return false
+        }
+        // The system checks the requirement against the client's audit token on
+        // every message, so a recycled PID cannot impersonate the GUI.
+        connection.setCodeSigningRequirement(
+            "anchor apple generic and certificate leaf[subject.OU] = \"\(teamID)\""
+        )
+        log.info("Accepted XPC client pid \(connection.processIdentifier) subject to Team ID \(teamID, privacy: .public)")
 
         let exportedInterface = NSXPCInterface(with: HelperXPCProtocol.self)
         connection.exportedInterface = exportedInterface
@@ -32,31 +59,6 @@ final class HelperService: NSObject, NSXPCListenerDelegate, Sendable {
 
         connection.resume()
         return true
-    }
-
-    private func validateClient(_ connection: NSXPCConnection) -> Bool {
-        // In production, verify the code signing identity of the connecting process.
-        // SMAppService handles registration trust; we additionally confirm the
-        // connecting PID belongs to a process signed with our team ID.
-        let pid = connection.processIdentifier
-        guard pid > 0 else { return false }
-
-        var code: SecCode?
-        let attrs = [kSecGuestAttributePid: pid] as CFDictionary
-        guard SecCodeCopyGuestWithAttributes(nil, attrs, [], &code) == errSecSuccess,
-              let secCode = code else {
-            return false
-        }
-
-        // Require the process be signed by our team
-        let requirement = "anchor apple generic and certificate leaf[subject.OU] = \"TEAMID0000\""
-        var reqRef: SecRequirement?
-        guard SecRequirementCreateWithString(requirement as CFString, [], &reqRef) == errSecSuccess,
-              let req = reqRef else {
-            return false
-        }
-
-        return SecCodeCheckValidity(secCode, [], req) == errSecSuccess
     }
 }
 

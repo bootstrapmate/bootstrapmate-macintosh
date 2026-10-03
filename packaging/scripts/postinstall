@@ -15,6 +15,8 @@ APP_PATH="/Applications/Utilities/BootstrapMate.app"
 BINARY_PATH="${APP_PATH}/Contents/MacOS/managedbootstrapinstall"
 SYMLINK_DIR="/usr/local/bootstrapmate"
 SYMLINK_PATH="${SYMLINK_DIR}/managedbootstrapinstall"
+# On PATH, the way other management tools expose a CLI that lives in an app bundle.
+PATH_SYMLINK="/usr/local/bin/managedbootstrapinstall"
 LAUNCHDAEMON_PATH="/Library/LaunchDaemons/com.github.bootstrapmate.plist"
 
 # Managed Bootstrap directory structure
@@ -44,6 +46,9 @@ if [[ -x "${BINARY_PATH}" ]]; then
     mkdir -p "${SYMLINK_DIR}"
     ln -sf "${BINARY_PATH}" "${SYMLINK_PATH}"
     log "Symlink created: ${SYMLINK_PATH} -> ${BINARY_PATH}"
+    mkdir -p "$(dirname "${PATH_SYMLINK}")"
+    ln -sf "${BINARY_PATH}" "${PATH_SYMLINK}"
+    log "Symlink created: ${PATH_SYMLINK} -> ${BINARY_PATH}"
 
     # Hard cut: drop the legacy installapplications symlink from prior versions
     rm -f "${SYMLINK_DIR}/installapplications" 2>/dev/null || true

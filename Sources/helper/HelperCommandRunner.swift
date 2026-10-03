@@ -21,13 +21,22 @@ final class HelperCommandRunner: NSObject, HelperXPCProtocol, @unchecked Sendabl
         self.connection = connection
     }
 
+    /// The CLI that ships next to this helper in the same app bundle, so a run
+    /// works wherever the app is installed; the fixed install path is the fallback.
+    static let cliURL: URL = {
+        let ownPath = URL(fileURLWithPath: CommandLine.arguments[0]).resolvingSymlinksInPath()
+        let sibling = ownPath.deletingLastPathComponent().appendingPathComponent("managedbootstrapinstall")
+        if FileManager.default.isExecutableFile(atPath: sibling.path) { return sibling }
+        return URL(fileURLWithPath: BootstrapMateConstants.executablePath)
+    }()
+
     // MARK: - HelperXPCProtocol
 
     func runBootstrap(arguments: [String]) {
         let clientProxy = connection.remoteObjectProxy as? HelperXPCClientProtocol
 
         let task = Process()
-        task.executableURL = URL(fileURLWithPath: BootstrapMateConstants.executablePath)
+        task.executableURL = Self.cliURL
         task.arguments = arguments
 
         let pipe = Pipe()
