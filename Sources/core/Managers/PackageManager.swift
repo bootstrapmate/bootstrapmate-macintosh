@@ -54,6 +54,13 @@ public final class PackageManager {
             }
         }
 
+        // A dry run stops here: the package is downloaded, hash-checked and
+        // signature-checked, but never handed to the installer.
+        if DryRun.isEnabled {
+            Logger.info("[Dry Run] Would install \(pkgPath)")
+            return true
+        }
+
         Logger.log("Installing package at \(pkgPath)")
         let task = Process()
         task.launchPath = "/usr/sbin/installer"

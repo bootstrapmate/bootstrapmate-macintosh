@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import CryptoKit
 @testable import BootstrapMateCore
 
 @Suite("BootstrapMateCore Tests")
@@ -853,5 +854,164 @@ struct DeploymentTargetTests {
         #expect(package != nil)
         #expect(package == plist)
         #expect(package == preinstall)
+    }
+}
+
+// MARK: - DryRun Tests
+
+/// Dry-run mode is one global switch, so these tests run one at a time and
+/// always switch it back off.
+@Suite("DryRun Tests", .serialized)
+struct DryRunTests {
+
+    private func temporaryDir() throws -> String {
+        let path = NSTemporaryDirectory() + "bootstrapmate-dryrun-" + UUID().uuidString
+        try FileManager.default.createDirectory(atPath: path, withIntermediateDirectories: true)
+        return path
+    }
+
+    private func sha256(_ data: Data) -> String {
+        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    }
+
+    /// Writes `contents` to a source file and returns a manifest item that
+    /// downloads it (over file://) to `destination`.
+    private func item(
+        type: String,
+        contents: String,
+        in dir: String,
+        destination: String,
+        extra: String = ""
+    ) throws -> (json: String, source: String) {
+        let source = dir + "/source-" + UUID().uuidString
+        let data = Data(contents.utf8)
+        try data.write(to: URL(fileURLWithPath: source))
+        let json = """
+        {"file": "\(destination)", "hash": "\(sha256(data))", "url": "file://\(source)", "type": "\(type)", "name": "\((destination as NSString).lastPathComponent)"\(extra)}
+        """
+        return (json, source)
+    }
+
+    private func decode(_ json: String) throws -> ManifestItem {
+        try JSONDecoder().decode(ManifestItem.self, from: Data(json.utf8))
+    }
+
+    @Test("A dry run still downloads each item and checks its hash")
+    func downloadsAndVerifies() throws {
+        let dir = try temporaryDir()
+        defer { try? FileManager.default.removeItem(atPath: dir); DryRun.isEnabled = false }
+        DryRun.isEnabled = true
+
+        let destination = dir + "/payload.pkg"
+        let good = try decode(item(type: "package", contents: "payload", in: dir, destination: destination).json)
+        #expect(ManifestManager.shared.downloadIfNeeded(good))
+        #expect(FileManager.default.fileExists(atPath: destination))
+
+        // A wrong hash still fails, as it would in a real run.
+        let source = dir + "/other"
+        try Data("other".utf8).write(to: URL(fileURLWithPath: source))
+        let bad = try decode("""
+        {"file": "\(dir)/bad.pkg", "hash": "\(String(repeating: "0", count: 64))", "url": "file://\(source)", "type": "package", "retries": 1, "retrywait": 0}
+        """)
+        #expect(ManifestManager.shared.downloadIfNeeded(bad) == false)
+    }
+
+    @Test("A dry run never runs a root script; a real run does")
+    func neverRunsScripts() throws {
+        let dir = try temporaryDir()
+        defer { try? FileManager.default.removeItem(atPath: dir); DryRun.isEnabled = false }
+        let marker = dir + "/ran"
+        let script = try decode(item(
+            type: "rootscript",
+            contents: "#!/bin/sh\ntouch '\(marker)'\nexit 0\n",
+            in: dir,
+            destination: dir + "/script.sh"
+        ).json)
+
+        DryRun.isEnabled = true
+        #expect(ScriptManager.shared.runScriptWithExitCode(script) == 0)
+        #expect(FileManager.default.fileExists(atPath: dir + "/script.sh"))
+        #expect(FileManager.default.fileExists(atPath: marker) == false)
+
+        DryRun.isEnabled = false
+        #expect(ScriptManager.shared.runScriptWithExitCode(script) == 0)
+        #expect(FileManager.default.fileExists(atPath: marker))
+    }
+
+    @Test("A dry run never hands a package to the installer")
+    func neverInstalls() {
+        defer { DryRun.isEnabled = false }
+        let missing = NSTemporaryDirectory() + "bootstrapmate-missing-\(UUID().uuidString).pkg"
+
+        // The installer fails on a missing package, so success proves it never ran.
+        DryRun.isEnabled = true
+        #expect(PackageManager.shared.installPackage(atPath: missing, verifySignature: false))
+
+        DryRun.isEnabled = false
+        #expect(PackageManager.shared.installPackage(atPath: missing, verifySignature: false) == false)
+    }
+
+    @Test("A dry run of a whole manifest installs nothing, runs nothing and leaves the ledger empty")
+    func wholeRunChangesNothing() throws {
+        let dir = try temporaryDir()
+        let ledgerPath = dir + "/installed.json"
+        let original = IAOrchestrator.shared.ledger
+        let originalConfig = IAOrchestrator.shared.config
+        defer {
+            try? FileManager.default.removeItem(atPath: dir)
+            DryRun.isEnabled = false
+            IAOrchestrator.shared.ledger = original
+            IAOrchestrator.shared.config = originalConfig
+        }
+
+        let preflightMarker = dir + "/preflight-ran"
+        let scriptMarker = dir + "/script-ran"
+        let preflight = try item(
+            type: "rootscript",
+            contents: "#!/bin/sh\ntouch '\(preflightMarker)'\nexit 0\n",
+            in: dir,
+            destination: dir + "/preflight.sh"
+        )
+        let package = try item(
+            type: "package",
+            contents: "not really a package",
+            in: dir,
+            destination: dir + "/tool.pkg",
+            extra: #", "allowUnsigned": true"#
+        )
+        let script = try item(
+            type: "rootscript",
+            contents: "#!/bin/sh\ntouch '\(scriptMarker)'\nexit 0\n",
+            in: dir,
+            destination: dir + "/setup.sh"
+        )
+        let manifestPath = dir + "/manifest.json"
+        try Data("""
+        {"preflight": [\(preflight.json)], "setupassistant": [\(package.json), \(script.json)]}
+        """.utf8).write(to: URL(fileURLWithPath: manifestPath))
+
+        #expect(ManifestManager.shared.loadManifest(
+            from: "file://\(manifestPath)",
+            followRedirects: false,
+            authHeader: nil,
+            skipValidation: false
+        ))
+
+        ManifestManager.shared.setDryRun(true)
+        var config = IAOrchestrator.OrchestratorConfig()
+        config.enableDialog = false
+        IAOrchestrator.shared.config = config
+        IAOrchestrator.shared.ledger = InstallLedger(path: ledgerPath)
+
+        #expect(IAOrchestrator.shared.runAllStages(reboot: true))
+
+        // Everything was downloaded and verified...
+        #expect(FileManager.default.fileExists(atPath: dir + "/preflight.sh"))
+        #expect(FileManager.default.fileExists(atPath: dir + "/tool.pkg"))
+        #expect(FileManager.default.fileExists(atPath: dir + "/setup.sh"))
+        // ...and nothing ran or was recorded.
+        #expect(FileManager.default.fileExists(atPath: preflightMarker) == false)
+        #expect(FileManager.default.fileExists(atPath: scriptMarker) == false)
+        #expect(FileManager.default.fileExists(atPath: ledgerPath) == false)
     }
 }

@@ -25,6 +25,10 @@ public final class IAOrchestrator {
     
     public var config = OrchestratorConfig()
 
+    /// Hashes of the package files this tool has installed. Replaceable so a
+    /// test can point it somewhere other than the system path.
+    public var ledger = InstallLedger()
+
     /// Set once the preflight has chosen baseline mode for this run.
     private var baselineRun = false
 
@@ -39,6 +43,10 @@ public final class IAOrchestrator {
     public func runAllStages(reboot: Bool) -> Bool {
         let startTime = Date()
         Logger.writeHeader("BootstrapMate Installation")
+        if DryRun.isEnabled {
+            Logger.setRunType(DryRun.runType)
+            Logger.info("Dry run: items are downloaded and verified; nothing is installed or run")
+        }
         
         // Initialize status tracking
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0.0"
@@ -133,7 +141,10 @@ public final class IAOrchestrator {
         Logger.info("Bootstrap session completed in \(String(format: "%.1f", duration))s")
         
         if success {
-            StatusManager.shared.writeSuccessfulCompletionPlist()
+            // A dry run changed nothing, so it must not mark the Mac complete.
+            if !DryRun.isEnabled {
+                StatusManager.shared.writeSuccessfulCompletionPlist()
+            }
             Logger.writeCompletion("All stages completed successfully")
             
             DialogManager.shared.complete(message: "Setup Complete!")
@@ -153,6 +164,14 @@ public final class IAOrchestrator {
         // Post a vendor-neutral run summary to the optional reporting endpoint
         // before cleanup boots us out. Best-effort and bounded by a short
         // timeout; a failure is logged but never fails the run.
+        // A dry run stops short of everything that acts on the Mac or tells
+        // the fleet it was provisioned.
+        if DryRun.isEnabled {
+            Logger.info("Dry run: not reporting, rebooting or removing the LaunchDaemon")
+            Logger.writeSessionSummary(status: preflightFailed ? "failed" : nil)
+            return success
+        }
+
         ReportManager.shared.sendRunSummary(success: success, startTime: startTime)
 
         // Handle reboot
@@ -219,6 +238,13 @@ public final class IAOrchestrator {
                 Logger.error("Failed to download preflight script: \(displayName)")
                 StatusManager.shared.setPhaseStatus(phase: .preflight, stage: .failed, errorMessage: "Download failed")
                 return .failed
+            }
+
+            // A dry run cannot know what the script would decide without
+            // running it, so it rehearses the full provisioning path.
+            if DryRun.isEnabled {
+                Logger.info("[Dry Run] Would run preflight script \(displayName); continuing as a provisioning run")
+                continue
             }
 
             // Run the script and capture exit code
@@ -384,7 +410,7 @@ public final class IAOrchestrator {
         }
 
         // Baseline repeats on a machine in use: never reinstall the same file.
-        if baselineRun, InstallLedger().contains(hash: item.hash) {
+        if baselineRun, ledger.contains(hash: item.hash) {
             Logger.writeSkipped("\(displayName) - this build was already installed by BootstrapMate")
             record(displayName, .skipped)
             return true
@@ -414,8 +440,12 @@ public final class IAOrchestrator {
             verifySignature: cfg.verifyPackageSignatures
         )
         
-        if installSuccess {
-            InstallLedger().record(hash: item.hash, name: displayName)
+        if installSuccess && DryRun.isEnabled {
+            Logger.writeSuccess("\(displayName) downloaded and verified (dry run, not installed)")
+            DialogManager.shared.notifyPackageSuccess(packageName: displayName)
+            record(displayName, .skipped)
+        } else if installSuccess {
+            ledger.record(hash: item.hash, name: displayName)
             Logger.writeSuccess("\(displayName) installed successfully")
             DialogManager.shared.notifyPackageSuccess(packageName: displayName)
             record(displayName, .installed)
@@ -441,7 +471,11 @@ public final class IAOrchestrator {
         
         let success = ScriptManager.shared.runScript(item)
         
-        if success {
+        if success && DryRun.isEnabled {
+            Logger.writeSuccess("\(displayName) downloaded and verified (dry run, not run)")
+            DialogManager.shared.notifyPackageSuccess(packageName: displayName)
+            record(displayName, .skipped)
+        } else if success {
             Logger.writeSuccess("\(displayName) completed")
             DialogManager.shared.notifyPackageSuccess(packageName: displayName)
             record(displayName, .installed)
@@ -477,7 +511,11 @@ public final class IAOrchestrator {
 
         let success = ScriptManager.shared.runAsUser(item, uid: consoleUser.uid, username: consoleUser.username)
 
-        if success {
+        if success && DryRun.isEnabled {
+            Logger.writeSuccess("\(displayName) downloaded and verified (dry run, not run)")
+            DialogManager.shared.notifyPackageSuccess(packageName: displayName)
+            record(displayName, .skipped)
+        } else if success {
             Logger.writeSuccess("\(displayName) completed")
             DialogManager.shared.notifyPackageSuccess(packageName: displayName)
             record(displayName, .installed)

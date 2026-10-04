@@ -129,6 +129,10 @@ Every item in `preflight`, `setupassistant` and `userland` takes the same fields
 | `donotwait` | no | `false` | Start a script and move on without waiting for it to finish. |
 | `baseline` | no | `true` | Set `false` to leave the item out of baseline runs. |
 
+## Dry run
+
+`managedbootstrapinstall --dry-run` (or the `dryRun` managed preference) rehearses a manifest against a real Mac without changing it. Every item is downloaded and its hash checked, and every package's signature is checked, so a broken URL, a stale hash or an untrusted package fails the rehearsal just as it would fail a real run. Nothing is installed, no script runs (preflight included), nothing is added to the install ledger, and the run does not reboot, post a report, mark the Mac complete or remove its LaunchDaemon. Because the preflight does not run, a dry run always rehearses the full provisioning path. Items are logged as `[Dry Run] Would install` or `[Dry Run] Would run`, recorded as skipped, and the session's run type is `dry-run`.
+
 ## Preflight exit codes
 
 The preflight rootscript decides what the rest of the run does:

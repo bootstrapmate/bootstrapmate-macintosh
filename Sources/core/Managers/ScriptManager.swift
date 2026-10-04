@@ -82,6 +82,12 @@ public final class ScriptManager {
             return -1
         }
 
+        // A dry run downloads and hash-checks the script but never runs it.
+        if DryRun.isEnabled {
+            Logger.info("[Dry Run] Would run \(item.file)")
+            return 0
+        }
+
         // Set executable permission
         do {
             try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: item.file)
@@ -188,6 +194,11 @@ public final class ScriptManager {
         if !ok {
             Logger.error("Failed to prepare user script: \(item.file)")
             return false
+        }
+
+        if DryRun.isEnabled {
+            Logger.info("[Dry Run] Would run \(item.file) as \(username)")
+            return true
         }
 
         do {
