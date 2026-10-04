@@ -13,7 +13,7 @@
 #   version         (optional) Minimum required version string for packages
 #   retries         (optional) Download attempts before the item fails (default: 3)
 #   retrywait       (optional) Seconds to wait between retries (default: 5)
-#   followRedirects (optional) Follow HTTP redirects for this item (default: false)
+#   followRedirects (optional) Follow HTTP redirects for this item (default: the run-wide setting, on unless set false)
 #   skipIf          (optional) Skip this item on a given architecture: arm64 | x86_64
 #   donotwait       (optional) Do not wait for this item to finish before continuing
 

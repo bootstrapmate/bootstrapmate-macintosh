@@ -16,6 +16,37 @@ extension DownloadError: LocalizedError {
     }
 }
 
+/// Decides, per request, whether an HTTP redirect is followed. Installed as the
+/// task's own delegate, so every download carries the setting it was asked
+/// for. When redirects are refused the 3xx response itself completes the task,
+/// and the caller fails it as a non-2xx response.
+final class RedirectPolicy: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+    let follow: Bool
+    let source: String
+
+    init(follow: Bool, source: String) {
+        self.follow = follow
+        self.source = source
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest request: URLRequest,
+        completionHandler: @escaping @Sendable (URLRequest?) -> Void
+    ) {
+        let target = request.url?.absoluteString ?? "unknown"
+        if follow {
+            Logger.debug("Following HTTP \(response.statusCode) redirect from \(source) to \(target)")
+            completionHandler(request)
+        } else {
+            Logger.warning("Not following HTTP \(response.statusCode) redirect from \(source) to \(target): followRedirects is off")
+            completionHandler(nil)
+        }
+    }
+}
+
 public final class NetworkManager {
     nonisolated(unsafe) public static let shared = NetworkManager()
 
@@ -46,9 +77,21 @@ public final class NetworkManager {
         if let header = authHeader {
             request.addValue(header, forHTTPHeaderField: "Authorization")
         }
-        Self.noCacheSession.dataTask(with: request) { data, _, error in
-            completion(data, error)
-        }.resume()
+        let task = Self.noCacheSession.dataTask(with: request) { data, response, error in
+            if let error = error {
+                completion(nil, error)
+                return
+            }
+            // A redirect that was not followed, or any other non-2xx answer,
+            // carries a body that is not the document asked for.
+            if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
+                completion(nil, DownloadError.requestFailed("HTTP \(http.statusCode) for \(url.absoluteString)"))
+                return
+            }
+            completion(data, nil)
+        }
+        task.delegate = RedirectPolicy(follow: followRedirects, source: url.absoluteString)
+        task.resume()
     }
 
     public func downloadFile(
@@ -111,6 +154,7 @@ public final class NetworkManager {
                 completion(.failure(error))
             }
         }
+        task.delegate = RedirectPolicy(follow: followRedirects, source: urlString)
         task.resume()
     }
 }

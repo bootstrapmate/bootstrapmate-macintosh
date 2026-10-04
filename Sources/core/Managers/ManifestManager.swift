@@ -141,7 +141,8 @@ public final class ManifestManager {
         NetworkManager.shared.downloadFile(
             toPath: item.file,
             from: item.url,
-            followRedirects: item.followRedirects ?? false,
+            // The item's own setting wins; otherwise the run-wide one applies.
+            followRedirects: item.followRedirects ?? ConfigManager.shared.config.followRedirects,
             authHeader: nil
         ) { result in
             switch result {

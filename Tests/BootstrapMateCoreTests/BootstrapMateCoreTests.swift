@@ -1,6 +1,7 @@
 import Testing
 import Foundation
 import CryptoKit
+import Network
 @testable import BootstrapMateCore
 
 @Suite("BootstrapMateCore Tests")
@@ -1015,3 +1016,107 @@ struct DryRunTests {
         #expect(FileManager.default.fileExists(atPath: ledgerPath) == false)
     }
 }
+
+// MARK: - Redirect Tests
+
+/// A one-route-pair HTTP server on localhost: `/redirect` answers 302 to
+/// `/target`, and `/target` answers 200 with a fixed body.
+private final class RedirectServer: @unchecked Sendable {
+    private let listener: NWListener
+    private let queue = DispatchQueue(label: "redirect-server")
+    private(set) var port: UInt16 = 0
+
+    init() throws {
+        listener = try NWListener(using: .tcp, on: .any)
+        let ready = DispatchSemaphore(value: 0)
+        listener.stateUpdateHandler = { state in
+            if case .ready = state { ready.signal() }
+        }
+        listener.newConnectionHandler = { [queue] connection in
+            connection.start(queue: queue)
+            connection.receive(minimumIncompleteLength: 1, maximumLength: 8192) { data, _, _, _ in
+                let request = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
+                let response: String
+                if request.hasPrefix("GET /redirect") {
+                    response = "HTTP/1.1 302 Found\r\nLocation: /target\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                } else {
+                    response = "HTTP/1.1 200 OK\r\nContent-Length: 6\r\nConnection: close\r\n\r\ntarget"
+                }
+                connection.send(content: Data(response.utf8), completion: .contentProcessed { _ in
+                    connection.cancel()
+                })
+            }
+        }
+        listener.start(queue: queue)
+        _ = ready.wait(timeout: .now() + 5)
+        port = listener.port?.rawValue ?? 0
+    }
+
+    func stop() { listener.cancel() }
+}
+
+private final class Box<T>: @unchecked Sendable { var value: T; init(_ v: T) { value = v } }
+
+@Suite("Redirect Tests")
+struct RedirectTests {
+
+    private func fetch(_ url: URL, follow: Bool) -> (Data?, Error?) {
+        let done = DispatchSemaphore(value: 0)
+        let result = Box<(Data?, Error?)>((nil, nil))
+        NetworkManager.shared.downloadData(from: url, followRedirects: follow, authHeader: nil) { data, error in
+            result.value = (data, error)
+            done.signal()
+        }
+        _ = done.wait(timeout: .now() + 10)
+        return result.value
+    }
+
+    private func download(_ url: URL, to path: String, follow: Bool) -> Bool {
+        let done = DispatchSemaphore(value: 0)
+        let ok = Box(false)
+        NetworkManager.shared.downloadFile(toPath: path, from: url.absoluteString, followRedirects: follow, authHeader: nil) { result in
+            if case .success = result { ok.value = true }
+            done.signal()
+        }
+        _ = done.wait(timeout: .now() + 10)
+        return ok.value
+    }
+
+    @Test("A redirect is followed when followRedirects is on")
+    func follows() throws {
+        let server = try RedirectServer()
+        defer { server.stop() }
+        let url = URL(string: "http://127.0.0.1:\(server.port)/redirect")!
+
+        let (data, error) = fetch(url, follow: true)
+        #expect(error == nil)
+        #expect(data.flatMap { String(data: $0, encoding: .utf8) } == "target")
+
+        let path = NSTemporaryDirectory() + "redirect-\(UUID().uuidString)"
+        defer { try? FileManager.default.removeItem(atPath: path) }
+        #expect(download(url, to: path, follow: true))
+        #expect(FileManager.default.contents(atPath: path) == Data("target".utf8))
+    }
+
+    @Test("A redirect is refused, and the download fails, when followRedirects is off")
+    func refuses() throws {
+        let server = try RedirectServer()
+        defer { server.stop() }
+        let url = URL(string: "http://127.0.0.1:\(server.port)/redirect")!
+
+        let (data, error) = fetch(url, follow: false)
+        #expect(data == nil)
+        #expect(error?.localizedDescription.contains("302") == true)
+
+        let path = NSTemporaryDirectory() + "redirect-\(UUID().uuidString)"
+        defer { try? FileManager.default.removeItem(atPath: path) }
+        #expect(download(url, to: path, follow: false) == false)
+        #expect(FileManager.default.fileExists(atPath: path) == false)
+    }
+
+    @Test("Redirects are followed by default")
+    func defaultIsOn() {
+        #expect(BootstrapMateConfig().followRedirects == true)
+    }
+}
+
