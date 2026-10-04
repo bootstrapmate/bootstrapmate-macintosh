@@ -57,9 +57,7 @@ final class SettingsViewModel {
     var blurScreen: Bool = false { didSet { scheduleAutoSave() } }
 
     // Advanced
-    var customInstallPath: String = "" { didSet { scheduleAutoSave() } }
-    var daemonIdentifier: String = BootstrapMateConstants.daemonIdentifier { didSet { scheduleAutoSave() } }
-    var agentIdentifier: String = BootstrapMateConstants.daemonIdentifier { didSet { scheduleAutoSave() } }
+    var retainCache: Bool = true { didSet { scheduleAutoSave() } }
     var networkTimeout: Int = 120 { didSet { scheduleAutoSave() } }
 
     // MARK: - Save Status
@@ -161,9 +159,7 @@ final class SettingsViewModel {
         dialogMessage = config.dialogMessage
         dialogIcon = config.dialogIcon ?? ""
         blurScreen = config.blurScreen
-        customInstallPath = config.customInstallPath ?? ""
-        daemonIdentifier = config.daemonIdentifier
-        agentIdentifier = config.agentIdentifier
+        retainCache = config.retainCache
         networkTimeout = config.networkTimeout
     }
 
@@ -212,9 +208,7 @@ final class SettingsViewModel {
         saveBool("blurScreen", blurScreen)
 
         // Advanced
-        saveString("installPath", customInstallPath)
-        saveString("daemonIdentifier", daemonIdentifier)
-        saveString("agentIdentifier", agentIdentifier)
+        saveBool("retainCache", retainCache)
         saveInt("networkTimeout", networkTimeout)
 
         saveStatus = .saved

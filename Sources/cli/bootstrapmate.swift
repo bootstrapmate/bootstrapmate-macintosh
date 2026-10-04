@@ -55,8 +55,8 @@ struct BootstrapMate: ParsableCommand {
     @Option(name: .long, help: "Custom dialog message.")
     var dialogMessage: String?
     
-    @Option(name: .long, help: "Maximum seconds to wait for network (default: 120).")
-    var networkTimeout: Int = 120
+    @Option(name: .long, help: "Maximum seconds to wait for network (default: the networkTimeout preference, else 120).")
+    var networkTimeout: Int?
 
     @Option(name: .long, help: "URL to POST a run summary to on completion (vendor-neutral JSON).")
     var reportingUrl: String?
@@ -155,9 +155,11 @@ struct BootstrapMate: ParsableCommand {
         Logger.info("BootstrapMate v\(version) started")
         Logger.debug("CLI arguments: \(CommandLine.arguments.joined(separator: " "))")
         
-        // Wait for network connectivity before proceeding
-        Logger.info("Waiting for network connectivity (timeout: \(networkTimeout)s)...")
-        if waitForNetwork(timeout: networkTimeout) {
+        // Wait for network connectivity before proceeding. The CLI value wins;
+        // otherwise the networkTimeout managed preference applies.
+        let networkWait = networkTimeout ?? ConfigManager.shared.config.networkTimeout
+        Logger.info("Waiting for network connectivity (timeout: \(networkWait)s)...")
+        if waitForNetwork(timeout: networkWait) {
             Logger.success("Network is available")
         } else {
             Logger.warning("Network check timed out - proceeding anyway")
@@ -271,15 +273,13 @@ struct BootstrapMate: ParsableCommand {
         ManifestManager.shared.setDryRun(effectiveConfig.dryRun)
         
         // Configure orchestrator
-        var orchestratorConfig = IAOrchestrator.OrchestratorConfig()
-        orchestratorConfig.enableDialog = !noDialog && !silent
-        
-        if let title = dialogTitle {
-            orchestratorConfig.dialogTitle = title
-        }
-        if let message = dialogMessage {
-            orchestratorConfig.dialogMessage = message
-        }
+        let orchestratorConfig = IAOrchestrator.OrchestratorConfig(
+            preferences: effectiveConfig,
+            noDialog: noDialog,
+            silent: silent,
+            title: dialogTitle,
+            message: dialogMessage
+        )
         
         IAOrchestrator.shared.config = orchestratorConfig
         

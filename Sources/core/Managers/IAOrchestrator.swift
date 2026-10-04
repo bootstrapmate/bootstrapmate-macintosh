@@ -21,6 +21,23 @@ public final class IAOrchestrator {
         public var blurScreen: Bool = false
         
         public init() {}
+
+        /// The dialog settings for a run: the managed preferences, with CLI
+        /// title and message overriding them, and --no-dialog or --silent
+        /// turning the dialog off whatever `enableDialog` says.
+        public init(
+            preferences: BootstrapMateConfig,
+            noDialog: Bool = false,
+            silent: Bool = false,
+            title: String? = nil,
+            message: String? = nil
+        ) {
+            enableDialog = preferences.enableDialog && !noDialog && !silent
+            dialogTitle = title ?? preferences.dialogTitle
+            dialogMessage = message ?? preferences.dialogMessage
+            dialogIcon = preferences.dialogIcon
+            blurScreen = preferences.blurScreen
+        }
     }
     
     public var config = OrchestratorConfig()
@@ -173,6 +190,13 @@ public final class IAOrchestrator {
         }
 
         ReportManager.shared.sendRunSummary(success: success, startTime: startTime)
+
+        // retainCache (default true) keeps payloads so a later run finds them
+        // already downloaded. Set false, a successful run empties the cache.
+        if success && !ConfigManager.shared.config.retainCache {
+            Logger.info("retainCache is off: emptying the download cache")
+            CleanupManager.shared.cleanCache()
+        }
 
         // Handle reboot
         // A baseline run lands on a machine someone is using — never reboot it.

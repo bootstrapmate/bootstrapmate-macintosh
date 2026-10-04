@@ -15,6 +15,18 @@
 				<true/>
 				<key>retainCache</key>
 				<false/>
+				<key>networkTimeout</key>
+				<integer>120</integer>
+				<key>enableDialog</key>
+				<true/>
+				<key>dialogTitle</key>
+				<string>Setting up your Mac</string>
+				<key>dialogMessage</key>
+				<string>Please wait while we configure your device...</string>
+				<key>dialogIcon</key>
+				<string>SF=gearshape.2.fill</string>
+				<key>blurScreen</key>
+				<false/>
 				<key>silentMode</key>
 				<false/>
 				<key>verboseMode</key>

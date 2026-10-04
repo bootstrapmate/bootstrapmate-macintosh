@@ -20,9 +20,9 @@ public struct BootstrapMateConfig {
     public var userscriptOnly: Bool
     public var silentMode: Bool
     public var verboseMode: Bool
-    public var customInstallPath: String?
-    public var daemonIdentifier: String
-    public var agentIdentifier: String
+    /// Keep downloaded payloads in the cache after a successful run. When
+    /// false, the cache is emptied once the run succeeds.
+    public var retainCache: Bool
     // Reporting: vendor-neutral run-summary POST
     public var reportingUrl: String?
     public var reportingHeader: String?
@@ -49,9 +49,7 @@ public struct BootstrapMateConfig {
         userscriptOnly: Bool = false,
         silentMode: Bool = false,
         verboseMode: Bool = false,
-        customInstallPath: String? = nil,
-        daemonIdentifier: String = BootstrapMateConstants.daemonIdentifier,
-        agentIdentifier: String = BootstrapMateConstants.daemonIdentifier,
+        retainCache: Bool = true,
         reportingUrl: String? = nil,
         reportingHeader: String? = nil,
         verifyPackageSignatures: Bool = true,
@@ -73,9 +71,7 @@ public struct BootstrapMateConfig {
         self.userscriptOnly = userscriptOnly
         self.silentMode = silentMode
         self.verboseMode = verboseMode
-        self.customInstallPath = customInstallPath
-        self.daemonIdentifier = daemonIdentifier
-        self.agentIdentifier = agentIdentifier
+        self.retainCache = retainCache
         self.reportingUrl = reportingUrl
         self.reportingHeader = reportingHeader
         self.verifyPackageSignatures = verifyPackageSignatures
@@ -99,12 +95,14 @@ public final class ConfigManager {
         "com.github.bootstrapmate"            // Primary BootstrapMate domain (management profile)
     ]
     
-    // Default installation path
-    private let defaultInstallPath = "/Library/Application Support/BootstrapMate"
-    
     /// Current active configuration
     public private(set) var config: BootstrapMateConfig
     
+    /// Unsupported keys already named in the log, so the wait for the
+    /// management profile, which rereads preferences every second, names each
+    /// one once.
+    private var warnedUnsupportedKeys = Set<String>()
+
     /// Legacy external config (for backward compatibility)
     public private(set) var externalConfig: BootstrapConfig?
     
@@ -197,11 +195,6 @@ public final class ConfigManager {
     /// Get the effective JSON URL (from config or fallback)
     public func getEffectiveJsonUrl() -> String? {
         return config.jsonUrl
-    }
-    
-    /// Get the installation path
-    public func getInstallPath() -> String {
-        return config.customInstallPath ?? defaultInstallPath
     }
     
     /// Check if configuration is valid (has minimum required settings)
@@ -370,27 +363,23 @@ public final class ConfigManager {
             config.userscriptOnly = value
         }
         
-        // Check for install path
-        let pathKeys = ["installPath", "InstallPath", "iapath"]
-        for key in pathKeys {
-            if let value = CFPreferencesCopyAppValue(key as CFString, cfDomain) as? String {
-                config.customInstallPath = value
+        // Cache retention after a successful run
+        let retainCacheKeys = ["retainCache", "RetainCache"]
+        for key in retainCacheKeys {
+            if let value = CFPreferencesCopyAppValue(key as CFString, cfDomain) as? Bool {
+                config.retainCache = value
                 break
             }
         }
-        
-        // Check for daemon identifier
-        if let value = CFPreferencesCopyAppValue("daemonIdentifier" as CFString, cfDomain) as? String {
-            config.daemonIdentifier = value
-        } else if let value = CFPreferencesCopyAppValue("ldidentifier" as CFString, cfDomain) as? String {
-            config.daemonIdentifier = value
-        }
-        
-        // Check for agent identifier
-        if let value = CFPreferencesCopyAppValue("agentIdentifier" as CFString, cfDomain) as? String {
-            config.agentIdentifier = value
-        } else if let value = CFPreferencesCopyAppValue("laidentifier" as CFString, cfDomain) as? String {
-            config.agentIdentifier = value
+
+        // Keys earlier builds accepted but never acted on. Name any that are
+        // set, so a profile carrying one shows in the log instead of looking
+        // as if it took effect.
+        for key in Self.unsupportedKeys
+        where !warnedUnsupportedKeys.contains(key)
+            && CFPreferencesCopyAppValue(key as CFString, cfDomain) != nil {
+            warnedUnsupportedKeys.insert(key)
+            Logger.warning("Ignoring managed preference \(key) in \(domain): BootstrapMate does not support it")
         }
 
         // Reporting: vendor-neutral run-summary POST endpoint
@@ -473,6 +462,15 @@ public final class ConfigManager {
         return config.jsonUrl != nil
     }
     
+    /// Preference keys that are read nowhere. The install path, daemon and
+    /// agent identifiers are fixed by the package (the app bundle, the
+    /// LaunchDaemon label), so a preference cannot move them.
+    public static let unsupportedKeys = [
+        "installPath", "InstallPath", "iapath",
+        "daemonIdentifier", "ldidentifier",
+        "agentIdentifier", "laidentifier"
+    ]
+
     private func loadFromManagedAppConfig() {
         // Check for management-deployed configuration profile
         // This handles the case where config is delivered via custom configuration profile
@@ -523,12 +521,11 @@ public final class ConfigManager {
         Logger.debug("  reboot: \(config.reboot)")
         Logger.debug("  silentMode: \(config.silentMode)")
         Logger.debug("  verboseMode: \(config.verboseMode)")
-        Logger.debug("  installPath: \(getInstallPath())")
         Logger.debug("  reportingUrl: \(config.reportingUrl != nil ? "set" : "not set")")
         Logger.debug("  verifyPackageSignatures: \(config.verifyPackageSignatures)")
         Logger.debug("  expectedTeamID: \(config.expectedTeamID ?? "any trusted")")
         Logger.debug("  allowUnsigned: \(config.allowUnsigned)")
-        Logger.debug("  daemonIdentifier: \(config.daemonIdentifier)")
+        Logger.debug("  retainCache: \(config.retainCache)")
         Logger.debug("  enableDialog: \(config.enableDialog)")
         Logger.debug("  dialogTitle: \(config.dialogTitle)")
         Logger.debug("  dialogMessage: \(config.dialogMessage)")

@@ -25,9 +25,7 @@ public final class ManagementDetector: Sendable {
         "silentMode":        ["silentMode", "SilentMode", "silent"],
         "verboseMode":       ["verboseMode", "VerboseMode", "verbose"],
         "reboot":            ["reboot", "Reboot"],
-        "customInstallPath": ["installPath", "InstallPath", "iapath"],
-        "daemonIdentifier":  ["daemonIdentifier", "ldidentifier"],
-        "agentIdentifier":   ["agentIdentifier", "laidentifier"],
+        "retainCache":       ["retainCache", "RetainCache"],
     ]
 
     private init() {}
