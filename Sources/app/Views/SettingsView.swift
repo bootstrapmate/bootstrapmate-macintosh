@@ -168,7 +168,7 @@ struct SettingsView: View {
                 }
 
                 settingRow("dryRun") {
-                    Toggle("No installer actions performed", isOn: $viewModel.dryRun)
+                    Toggle("Download and verify only; install and run nothing", isOn: $viewModel.dryRun)
                 }
 
                 settingRow("userscriptOnly") {

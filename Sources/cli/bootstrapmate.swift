@@ -25,7 +25,7 @@ struct BootstrapMate: ParsableCommand {
     @Option(name: .long, help: "Optional authorization header value (e.g., 'Basic xxx').")
     var headers: String?
 
-    @Flag(name: .long, help: "When set, no installer actions are performed.")
+    @Flag(name: .long, help: "Download and verify every item, but install nothing, run no scripts and leave the Mac unchanged.")
     var dryRun: Bool = false
 
     @Flag(name: .long, help: "Follow HTTP redirects while downloading manifests and artifacts.")

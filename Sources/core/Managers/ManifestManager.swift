@@ -36,13 +36,14 @@ public struct IntOrString: Codable {
 public final class ManifestManager {
     nonisolated(unsafe) public static let shared = ManifestManager()
 
-    private var dryRun = false
     private var manifest: BootstrapManifest?
 
     private init() {}
 
+    /// Turns dry-run mode on or off for the whole run. Downloads still happen
+    /// in a dry run, so hashes are checked; see `DryRun`.
     public func setDryRun(_ enable: Bool) {
-        dryRun = enable
+        DryRun.isEnabled = enable
     }
 
     public func loadFromManagementOrLocal() {
@@ -111,11 +112,6 @@ public final class ManifestManager {
            let localHash = computeSHA256(of: path),
            localHash == expectedHash {
             Logger.log("Already have valid file: \(path). Skipping re-download.")
-            return true
-        }
-
-        if dryRun {
-            Logger.log("[Dry Run] Would download \(item.name ?? path).")
             return true
         }
 
