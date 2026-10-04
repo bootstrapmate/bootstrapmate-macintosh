@@ -1,0 +1,19 @@
+#!/bin/zsh
+# BootstrapMate preinstall
+# Refuses the install on a macOS older than the binaries are built for, so an
+# unsupported Mac fails here, visibly, instead of installing a daemon that
+# cannot launch. Keep MINIMUM_MACOS equal to the platform in Package.swift and
+# LSMinimumSystemVersion in packaging/resources/Info.plist.template; a unit
+# test checks that the three agree.
+
+MINIMUM_MACOS=14
+
+CURRENT=$(/usr/bin/sw_vers -productVersion)
+MAJOR=${CURRENT%%.*}
+
+if (( MAJOR < MINIMUM_MACOS )); then
+    echo "BootstrapMate requires macOS ${MINIMUM_MACOS} or later; this Mac runs ${CURRENT}." >&2
+    exit 1
+fi
+
+exit 0

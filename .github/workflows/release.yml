@@ -99,11 +99,11 @@ jobs:
               -e "s/{{BUILD_NUMBER}}/$BUILD_NUMBER/g" \
               "$PACKAGING_DIR/resources/Info.plist.template" > "$APP/Contents/Info.plist"
 
-          # Icon: Assets.car (macOS 26+ Liquid Glass) + .icns fallback (13-25).
+          # Icon: Assets.car (macOS 26+ Liquid Glass) + .icns fallback (14-25).
           xcrun actool \
             --compile "$ACTOOL_OUT" \
             --platform macosx \
-            --minimum-deployment-target 13.0 \
+            --minimum-deployment-target 14.0 \
             --app-icon BootstrapMate \
             --output-partial-info-plist "$ACTOOL_OUT/partial-info.plist" \
             --warnings --errors \
@@ -114,8 +114,8 @@ jobs:
           # LaunchDaemons + postinstall.
           cp "$PACKAGING_DIR/LaunchDaemons/com.github.bootstrapmate.plist"        "$PKG_ROOT/Library/LaunchDaemons/"
           cp "$PACKAGING_DIR/LaunchDaemons/com.github.bootstrapmate.helper.plist" "$APP_HELPER_LD/"
-          cp "$PACKAGING_DIR/scripts/postinstall" "$BUILD_DIR/scripts/"
-          chmod +x "$BUILD_DIR/scripts/postinstall"
+          cp "$PACKAGING_DIR/scripts/preinstall" "$PACKAGING_DIR/scripts/postinstall" "$BUILD_DIR/scripts/"
+          chmod +x "$BUILD_DIR/scripts/preinstall" "$BUILD_DIR/scripts/postinstall"
           touch "$PKG_ROOT/usr/local/bootstrapmate/.placeholder"
 
           # pkgbuild with relocation + version-check disabled (mirrors the Makefile).

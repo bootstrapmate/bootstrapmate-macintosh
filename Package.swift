@@ -4,7 +4,7 @@ import PackageDescription
 let package = Package(
     name: "BootstrapMate",
     platforms: [
-        .macOS(.v15)
+        .macOS(.v14)
     ],
     products: [
         .executable(name: "bootstrapmate", targets: ["BootstrapMateCLI"]),

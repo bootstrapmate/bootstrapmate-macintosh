@@ -12,6 +12,10 @@ A bootstrapping tool for Mac device provisioning that downloads and installs pac
 - LaunchDaemon for automatic execution
 - Comprehensive logging
 
+## Requirements
+
+macOS 14 or later, on the Macs it runs on. The settings app uses the Observation framework and SwiftUI APIs that first shipped in macOS 14, so that is the lowest release the package can build for. Nothing needs macOS 15. The floor is set in `Package.swift`, as `LSMinimumSystemVersion` in `packaging/resources/Info.plist.template`, and in `packaging/scripts/preinstall`, which refuses the install on an older Mac rather than leaving a daemon there that cannot launch. A unit test fails if the three disagree.
+
 ## Versioning
 
 BootstrapMate uses date-based versioning: `YYYY.MM.DD.HHMM`
@@ -29,7 +33,7 @@ Check installed version:
 
 ### Prerequisites
 
-- macOS 13.0 or later
+- macOS 14 or later
 - Xcode Command Line Tools
 - Swift 6.0 or later
 - Apple Developer ID certificates for signing
@@ -106,6 +110,24 @@ make build \
   NOTARIZATION_PROFILE="your_profile" \
   NOTARIZATION_TEAM_ID="YOUR_TEAM_ID"
 ```
+
+## Manifest item fields
+
+Every item in `preflight`, `setupassistant` and `userland` takes the same fields. `examples/manifest.yaml` and `examples/manifest.json` show each one in use.
+
+| Field | Required | Default | Meaning |
+|---|---|---|---|
+| `file` | yes | | Absolute path the item is downloaded to on the Mac. |
+| `hash` | yes | | SHA-256 of the file. A file already on disk with this hash is not downloaded again. |
+| `url` | yes | | Where the file is downloaded from. |
+| `type` | yes | | `rootscript`, `package` or `userscript`. |
+| `name` | no | the file path | Label shown in logs and the dialog. |
+| `packageid`, `version` | no | | A package whose receipt shows this version or newer is skipped. |
+| `retries` | no | `3` | Download attempts before the item fails. |
+| `retrywait` | no | `5` | Seconds between download attempts. |
+| `skipIf` | no | | `arm64` or `x86_64`: skip the item on that architecture. |
+| `donotwait` | no | `false` | Start a script and move on without waiting for it to finish. |
+| `baseline` | no | `true` | Set `false` to leave the item out of baseline runs. |
 
 ## Preflight exit codes
 
