@@ -691,3 +691,130 @@ struct InstallLedgerTests {
         #expect(ledger.contains(hash: "") == false)
     }
 }
+
+// MARK: - LastRun Tests
+
+@Suite("LastRun Tests")
+struct LastRunTests {
+
+    private func temporaryDir() -> String {
+        let path = NSTemporaryDirectory() + "bootstrapmate-lastrun-" + UUID().uuidString
+        try? FileManager.default.createDirectory(atPath: path, withIntermediateDirectories: true)
+        return path
+    }
+
+    private func record(status: String = "completed", items: [RunItem]) -> LastRunRecord {
+        return LastRunRecord(
+            sessionId: "2026-10-04-213210",
+            runType: "provisioning",
+            status: status,
+            toolVersion: "2026.10.04.2130",
+            startTime: "2026-10-04T21:32:10.512Z",
+            endTime: "2026-10-04T21:47:55.020Z",
+            durationSeconds: 945,
+            errors: 0,
+            warnings: 0,
+            items: items
+        )
+    }
+
+    @Test("A clean run prints counts and no failure list")
+    func noFailures() {
+        let line = LastRun.summaryLine(for: record(items: [
+            RunItem(name: "Tools", stage: .setupassistant, result: .installed),
+            RunItem(name: "Agent", stage: .setupassistant, result: .skipped),
+            RunItem(name: "Dock", stage: .userland, result: .installed)
+        ]))
+        #expect(line == "2026-10-04T21:47Z provisioning completed v2026.10.04.2130 installed=2 skipped=1 failed=0")
+    }
+
+    @Test("Failures are listed by name and error")
+    func failuresListed() {
+        let line = LastRun.summaryLine(for: record(status: "partial_failure", items: [
+            RunItem(name: "Tools", stage: .setupassistant, result: .installed),
+            RunItem(name: "Agent", stage: .setupassistant, result: .failed, error: "Download failed"),
+            RunItem(name: "Dock", stage: .userland, result: .failed, error: "Script\nfailed")
+        ]))
+        #expect(line == "2026-10-04T21:47Z provisioning partial_failure v2026.10.04.2130 installed=1 skipped=0 failed=2: Agent: Download failed; Dock: Script failed")
+    }
+
+    @Test("A running record uses the start time")
+    func runningUsesStart() {
+        var r = record(status: "running", items: [])
+        r.endTime = nil
+        #expect(LastRun.summaryLine(for: r).hasPrefix("2026-10-04T21:32Z provisioning running "))
+    }
+
+    @Test("A long failure list is cut to the limit")
+    func truncation() {
+        let items = (1...200).map {
+            RunItem(name: "Package number \($0)", stage: .userland, result: .failed, error: "Installation failed")
+        }
+        let line = LastRun.summaryLine(for: record(status: "partial_failure", items: items))
+        #expect(line.utf8.count <= LastRun.maxLineLength)
+        #expect(line.utf8.count >= LastRun.maxLineLength - 3)
+        #expect(line.hasSuffix("..."))
+        #expect(line.contains("failed=200: Package number 1: Installation failed;"))
+        #expect(!line.contains("\n"))
+    }
+
+    @Test("Truncation never splits a multi-byte character")
+    func truncationIsCharacterSafe() {
+        let cut = LastRun.truncate(String(repeating: "é", count: 20), to: 10)
+        #expect(cut == "ééé...")
+    }
+
+    @Test("An absent file reports no run")
+    func absentFile() {
+        #expect(LastRun.summaryLine(path: temporaryDir() + "/last-run.json") == "no run recorded")
+    }
+
+    @Test("Error is kept only for failures")
+    func errorOnlyOnFailure() {
+        #expect(RunItem(name: "a", stage: .userland, result: .installed, error: "x").error == nil)
+        #expect(RunItem(name: "a", stage: .userland, result: .failed, error: "x").error == "x")
+    }
+
+    @Test("A session writes last-run.json at start and at finish, with the corrected run type")
+    func sessionWritesLastRun() throws {
+        let root = temporaryDir()
+        let logs = root + "/logs"
+        let lastRunPath = root + "/last-run.json"
+        let start = SessionLog.formatter("yyyy-MM-dd HH:mm:ss").date(from: "2026-10-04 14:32:10")!
+        let session = try #require(SessionLog(
+            logsDirectory: logs, version: "2026.10.04.1432", runType: "provisioning",
+            lastRunPath: lastRunPath, start: start))
+
+        let atStart = try #require(LastRun.read(from: lastRunPath))
+        #expect(atStart.status == "running")
+        #expect(atStart.runType == "provisioning")
+        #expect(atStart.endTime == nil)
+        let raw = try String(contentsOfFile: lastRunPath, encoding: .utf8)
+        #expect(raw.contains("\"end_time\" : null"))
+
+        session.setRunType("baseline")
+        let sessionJSON = try #require(try JSONSerialization.jsonObject(
+            with: Data(contentsOf: URL(fileURLWithPath: session.sessionDir + "/session.json"))) as? [String: Any])
+        #expect(sessionJSON["run_type"] as? String == "baseline")
+        #expect(LastRun.read(from: lastRunPath)?.runType == "baseline")
+
+        session.recordItem(RunItem(name: "Tools", stage: .setupassistant, result: .installed))
+        session.recordItem(RunItem(name: "Agent", stage: .setupassistant, result: .failed, error: "Download failed"))
+        session.append(level: "ERROR", message: "Failed to download Agent", date: start)
+        session.finish(end: start.addingTimeInterval(60))
+
+        let atEnd = try #require(LastRun.read(from: lastRunPath))
+        #expect(atEnd.status == "partial_failure")
+        #expect(atEnd.runType == "baseline")
+        #expect(atEnd.durationSeconds == 60)
+        #expect(atEnd.errors == 1)
+        #expect(atEnd.sessionId == session.sessionId)
+        #expect(atEnd.items.count == 2)
+        #expect(atEnd.items[1] == RunItem(name: "Agent", stage: .setupassistant, result: .failed, error: "Download failed"))
+    }
+
+    @Test("last-run.json sits beside the logs directory")
+    func lastRunPathBesideLogs() {
+        #expect(Logger.lastRunPath(forLogsDirectory: BootstrapMateConstants.logsDirectory) == BootstrapMateConstants.lastRunPath)
+    }
+}

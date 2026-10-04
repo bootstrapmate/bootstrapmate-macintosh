@@ -66,6 +66,9 @@ struct BootstrapMate: ParsableCommand {
     @Flag(name: .long, help: "Allow unsigned/untrusted installer packages to install.")
     var allowUnsigned: Bool = false
 
+    @Flag(name: .long, help: "Print the last run's summary from last-run.json as one line and exit.")
+    var lastRun: Bool = false
+
     /// Thread-safe wrapper for network status
     private final class NetworkStatus: @unchecked Sendable {
         var isReady = false
@@ -105,6 +108,13 @@ struct BootstrapMate: ParsableCommand {
     }
 
     func run() throws {
+        // A read-only query: answer before the logger starts, because starting
+        // it opens a new session and would overwrite the record being read.
+        if lastRun {
+            print(LastRun.summaryLine())
+            return
+        }
+
         // Ensure the real log directory exists before initializing Logger.
         // There is no fallback log elsewhere; a failure here is reported on stderr.
         let logDir = BootstrapMateConstants.logsDirectory
@@ -235,6 +245,7 @@ struct BootstrapMate: ParsableCommand {
             
             if !manifestLoaded {
                 Logger.error("Failed to load manifest from \(url)")
+                Logger.writeSessionSummary(status: "failed")
                 Foundation.exit(1)
             }
         } else {
@@ -248,6 +259,7 @@ struct BootstrapMate: ParsableCommand {
                 // For now, we require jsonUrl
             } else {
                 Logger.error("No manifest URL configured. Use --jsonurl or configure via management profile.")
+                Logger.writeSessionSummary(status: "failed")
                 Foundation.exit(1)
             }
         }
