@@ -16,6 +16,12 @@ A bootstrapping tool for Mac device provisioning that downloads and installs pac
 
 macOS 14 or later, on the Macs it runs on. The settings app uses the Observation framework and SwiftUI APIs that first shipped in macOS 14, so that is the lowest release the package can build for. Nothing needs macOS 15. The floor is set in `Package.swift`, as `LSMinimumSystemVersion` in `packaging/resources/Info.plist.template`, and in `packaging/scripts/preinstall`, which refuses the install on an older Mac rather than leaving a daemon there that cannot launch. A unit test fails if the three disagree.
 
+## Install layout
+
+The package installs `/Applications/Utilities/Managed Bootstrap Install.app`. The bundle holds the CLI `managedbootstrapinstall`, the settings app and the privileged helper. The CLI is also linked at `/usr/local/bin/managedbootstrapinstall` and at `/usr/local/bootstrapmate/managedbootstrapinstall`. The LaunchDaemon label `com.github.bootstrapmate`, the bundle identifier, the preference domain and everything under `/Library/Managed Bootstrap` (logs, cache, `installed.json`, `last-run.json`) keep their names.
+
+Builds before the rename installed the app as `/Applications/Utilities/BootstrapMate.app`. An upgrade removes that bundle in the postinstall, after the new CLI is in place and both daemons have been reloaded from the new bundle, so a Mac never has two apps. Scripts that look for the CLI should use `/usr/local/bin/managedbootstrapinstall`, which works for both layouts.
+
 ## Versioning
 
 BootstrapMate uses date-based versioning: `YYYY.MM.DD.HHMM`
