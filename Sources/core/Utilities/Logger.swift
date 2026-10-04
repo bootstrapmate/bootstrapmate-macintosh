@@ -87,6 +87,7 @@ public final class Logger {
             logsDirectory: logDirectory,
             version: version,
             runType: runType,
+            lastRunPath: Logger.lastRunPath(forLogsDirectory: logDirectory),
             start: sessionStartTime
         )
         self.session = session
@@ -255,11 +256,30 @@ public final class Logger {
         print()
     }
 
-    public static func writeSessionSummary() {
+    /// Closes the session. `status` overrides the outcome worked out from the
+    /// error count; pass "failed" when the run could not do its job at all.
+    public static func writeSessionSummary(status: String? = nil) {
         let duration = shared?.getSessionDuration() ?? 0
         shared?.writeToFile(level: .info, "=== BootstrapMate Session Ended === (Duration: \(String(format: "%.1f", duration))s)")
         shared?.writeToFile(level: .info, "Total Session Duration: \(String(format: "%.2f", duration / 60)) minutes")
-        shared?.session?.finish()
+        shared?.session?.finish(status: status)
+    }
+
+    /// Records the mode the preflight chose: skip, baseline or provisioning.
+    public static func setRunType(_ runType: String) {
+        shared?.writeToFile(level: .info, "Run type: \(runType)")
+        shared?.session?.setRunType(runType)
+    }
+
+    /// Records one item's outcome for the last-run summary.
+    public static func recordItem(_ name: String, stage: RunItemStage, result: RunItemResult, error: String? = nil) {
+        shared?.session?.recordItem(RunItem(name: name, stage: stage, result: result, error: error))
+    }
+
+    /// last-run.json lives beside the logs directory, not inside it, so log
+    /// retention never removes it.
+    static func lastRunPath(forLogsDirectory logs: String) -> String {
+        return ((logs as NSString).deletingLastPathComponent as NSString).appendingPathComponent("last-run.json")
     }
 
     /// The session id of the run in progress, when it has a session directory.

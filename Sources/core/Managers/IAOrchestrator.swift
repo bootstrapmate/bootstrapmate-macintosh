@@ -27,6 +27,9 @@ public final class IAOrchestrator {
 
     /// Set once the preflight has chosen baseline mode for this run.
     private var baselineRun = false
+
+    /// The stage whose items are being processed, for the last-run record.
+    private var currentStage: RunItemStage = .setupassistant
     
     private init() {}
     
@@ -66,12 +69,14 @@ public final class IAOrchestrator {
             if preflightResult == .skipBootstrap {
                 // Preflight returned 0 - skip remaining stages and cleanup
                 Logger.info("Preflight script returned 0. Skipping bootstrap and cleaning up.")
+                Logger.setRunType("skip")
                 StatusManager.shared.setPhaseStatus(phase: .preflight, stage: .completed)
                 cleanupAndExit(success: true)
                 return true
             } else if preflightResult == .baseline {
                 baseline = true
                 baselineRun = true
+                Logger.setRunType("baseline")
             } else if preflightResult == .failed {
                 // A failed preflight (download error / negative exit) still gates the
                 // later phases, as it did before — only setupassistant *item* failures
@@ -106,6 +111,7 @@ public final class IAOrchestrator {
             let items = baseline ? setupassistant.filter { $0.runsInBaseline } : setupassistant
             for item in setupassistant where baseline && !item.runsInBaseline {
                 Logger.writeSkipped("\(item.name ?? item.file) (excluded from baseline)")
+                Logger.recordItem(item.name ?? item.file, stage: .setupassistant, result: .skipped)
             }
             let setupSuccess = runSetupAssistantStage(items)
             success = success && setupSuccess
@@ -158,7 +164,8 @@ public final class IAOrchestrator {
         
         // Close the session before cleanup: booting the daemon out signals this
         // process, and a summary written afterwards never reaches the log.
-        Logger.writeSessionSummary()
+        // A failed preflight means the run did nothing it was asked to.
+        Logger.writeSessionSummary(status: preflightFailed ? "failed" : nil)
         registerCleanupTasks()
         return success
     }
@@ -247,6 +254,7 @@ public final class IAOrchestrator {
     
     private func runSetupAssistantStage(_ items: [ManifestItem]) -> Bool {
         Logger.writeSection("Setup Assistant Stage")
+        currentStage = .setupassistant
         StatusManager.shared.setPhaseStatus(phase: .setupAssistant, stage: .running)
         DialogManager.shared.notifyPhaseStarted(phase: "Setup Assistant")
         
@@ -265,6 +273,7 @@ public final class IAOrchestrator {
             if let skipIf = item.skipIf, ArchitectureSkip.shouldSkip(skipIf) {
                 Logger.writeSkipped("\(displayName) (architecture: \(skipIf))")
                 DialogManager.shared.notifyPackageSkipped(packageName: displayName, reason: "Not for this architecture")
+                record(displayName, .skipped)
                 continue
             }
             
@@ -285,6 +294,7 @@ public final class IAOrchestrator {
     
     private func runUserlandStage(_ items: [ManifestItem]) -> Bool {
         Logger.writeSection("Userland Stage")
+        currentStage = .userland
         StatusManager.shared.setPhaseStatus(phase: .userland, stage: .starting)
         DialogManager.shared.notifyPhaseStarted(phase: "Userland")
         
@@ -299,6 +309,9 @@ public final class IAOrchestrator {
                 stage: .skipped,
                 errorMessage: "No user logged in before the login timeout expired"
             )
+            for item in items {
+                record(item.name ?? item.file, .skipped)
+            }
             return false
         }
 
@@ -319,6 +332,7 @@ public final class IAOrchestrator {
             if let skipIf = item.skipIf, ArchitectureSkip.shouldSkip(skipIf) {
                 Logger.writeSkipped("\(displayName) (architecture: \(skipIf))")
                 DialogManager.shared.notifyPackageSkipped(packageName: displayName, reason: "Not for this architecture")
+                record(displayName, .skipped)
                 continue
             }
             
@@ -354,6 +368,7 @@ public final class IAOrchestrator {
         default:
             Logger.warning("Unknown item type: \(item.type)")
             DialogManager.shared.updateListItem(name: displayName, status: .fail, statusText: "Unknown type")
+            record(displayName, .failed, error: "Unknown type: \(item.type)")
             return false
         }
     }
@@ -364,12 +379,14 @@ public final class IAOrchestrator {
            PackageManager.shared.isPackageInstalled(packageID: pkgID, minVersion: ver) {
             Logger.writeSkipped("\(displayName) - already installed (>= \(ver))")
             DialogManager.shared.notifyPackageSkipped(packageName: displayName)
+            record(displayName, .skipped)
             return true
         }
 
         // Baseline repeats on a machine in use: never reinstall the same file.
         if baselineRun, InstallLedger().contains(hash: item.hash) {
             Logger.writeSkipped("\(displayName) - this build was already installed by BootstrapMate")
+            record(displayName, .skipped)
             return true
         }
 
@@ -379,6 +396,7 @@ public final class IAOrchestrator {
         guard ManifestManager.shared.downloadIfNeeded(item) else {
             Logger.writeError("Failed to download \(displayName)")
             DialogManager.shared.notifyPackageFailure(packageName: displayName, error: "Download failed")
+            record(displayName, .failed, error: "Download failed")
             return false
         }
         
@@ -400,9 +418,11 @@ public final class IAOrchestrator {
             InstallLedger().record(hash: item.hash, name: displayName)
             Logger.writeSuccess("\(displayName) installed successfully")
             DialogManager.shared.notifyPackageSuccess(packageName: displayName)
+            record(displayName, .installed)
         } else {
             Logger.writeError("Failed to install \(displayName)")
             DialogManager.shared.notifyPackageFailure(packageName: displayName, error: "Installation failed")
+            record(displayName, .failed, error: "Installation failed")
         }
         
         return installSuccess
@@ -415,6 +435,7 @@ public final class IAOrchestrator {
         guard ManifestManager.shared.downloadIfNeeded(item) else {
             Logger.writeError("Failed to download script \(displayName)")
             DialogManager.shared.notifyPackageFailure(packageName: displayName, error: "Download failed")
+            record(displayName, .failed, error: "Download failed")
             return false
         }
         
@@ -423,9 +444,11 @@ public final class IAOrchestrator {
         if success {
             Logger.writeSuccess("\(displayName) completed")
             DialogManager.shared.notifyPackageSuccess(packageName: displayName)
+            record(displayName, .installed)
         } else {
             Logger.writeError("\(displayName) failed")
             DialogManager.shared.notifyPackageFailure(packageName: displayName, error: "Script failed")
+            record(displayName, .failed, error: "Script failed")
         }
         
         return success
@@ -438,6 +461,7 @@ public final class IAOrchestrator {
         guard ManifestManager.shared.downloadIfNeeded(item) else {
             Logger.writeError("Failed to download user script \(displayName)")
             DialogManager.shared.notifyPackageFailure(packageName: displayName, error: "Download failed")
+            record(displayName, .failed, error: "Download failed")
             return false
         }
 
@@ -447,6 +471,7 @@ public final class IAOrchestrator {
         guard let consoleUser = SessionManager.shared.getValidConsoleUser() else {
             Logger.writeError("\(displayName) failed - no console user to run as")
             DialogManager.shared.notifyPackageFailure(packageName: displayName, error: "No console user")
+            record(displayName, .failed, error: "No console user")
             return false
         }
 
@@ -455,15 +480,21 @@ public final class IAOrchestrator {
         if success {
             Logger.writeSuccess("\(displayName) completed")
             DialogManager.shared.notifyPackageSuccess(packageName: displayName)
+            record(displayName, .installed)
         } else {
             Logger.writeError("\(displayName) failed")
             DialogManager.shared.notifyPackageFailure(packageName: displayName, error: "Script failed")
+            record(displayName, .failed, error: "Script failed")
         }
 
         return success
     }
 
     // MARK: - Helper Methods
+
+    private func record(_ name: String, _ result: RunItemResult, error: String? = nil) {
+        Logger.recordItem(name, stage: currentStage, result: result, error: error)
+    }
     
     private func countTotalPackages(_ manifest: BootstrapManifest) -> Int {
         var count = 0

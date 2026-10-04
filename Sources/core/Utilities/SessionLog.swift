@@ -12,6 +12,9 @@
 //  The layout and field names match Cimian's session logger and the Munki
 //  fork's, so the same readers work on every managed tool.
 //
+//  When given a `lastRunPath`, every write of session.json also writes the
+//  run's summary there (see LastRun.swift), so the two never disagree.
+//
 
 import Foundation
 
@@ -96,7 +99,11 @@ public final class SessionLog {
     public let logFilePath: String
 
     private let startTime: Date
-    private let runType: String
+    /// What kind of run this is. It starts as the caller's guess and is
+    /// corrected once the preflight has decided (`setRunType`).
+    public private(set) var runType: String
+    private let lastRunPath: String?
+    private var items = [RunItem]()
     private let version: String
     private let eventsHandle: FileHandle?
     private let isoFormatter: ISO8601DateFormatter
@@ -107,7 +114,7 @@ public final class SessionLog {
     /// Creates `logs/YYYY-MM-DD/HHMMSS/`, appending `_2` through `_9` when a
     /// previous run started in the same second. Returns nil when the directory
     /// cannot be created, which leaves the caller to fall back to a flat file.
-    public init?(logsDirectory: String, version: String, runType: String, start: Date = Date()) {
+    public init?(logsDirectory: String, version: String, runType: String, lastRunPath: String? = nil, start: Date = Date()) {
         let dayFormatter = SessionLog.formatter("yyyy-MM-dd")
         let timeFormatter = SessionLog.formatter("HHmmss")
         let day = dayFormatter.string(from: start)
@@ -137,6 +144,7 @@ public final class SessionLog {
         self.logFilePath = (chosenDir as NSString).appendingPathComponent("bootstrap.log")
         self.startTime = start
         self.runType = runType
+        self.lastRunPath = lastRunPath
         self.version = version
         self.isoFormatter = {
             let f = ISO8601DateFormatter()
@@ -186,6 +194,23 @@ public final class SessionLog {
         handle.write(Data(line.utf8))
     }
 
+    /// Records the mode the preflight chose and rewrites the files with it.
+    public func setRunType(_ runType: String) {
+        guard !finished, runType != self.runType else { return }
+        self.runType = runType
+        writeSessionFile(status: "running")
+    }
+
+    /// Records one item's outcome for last-run.json. The file itself is
+    /// rewritten when the run ends, not per item.
+    public func recordItem(_ item: RunItem) {
+        guard !finished else { return }
+        items.append(item)
+    }
+
+    /// The items recorded so far, in order.
+    public var recordedItems: [RunItem] { items }
+
     /// Rewrites session.json with the run's outcome.
     public func finish(status: String? = nil, end: Date = Date()) {
         guard !finished else { return }
@@ -209,9 +234,25 @@ public final class SessionLog {
             environment: SessionLog.environment(),
             summary: summary
         )
-        guard let data = try? SessionLog.sessionEncoder.encode(record) else { return }
-        let path = (sessionDir as NSString).appendingPathComponent("session.json")
-        try? data.write(to: URL(fileURLWithPath: path), options: .atomic)
+        if let data = try? SessionLog.sessionEncoder.encode(record) {
+            let path = (sessionDir as NSString).appendingPathComponent("session.json")
+            try? data.write(to: URL(fileURLWithPath: path), options: .atomic)
+        }
+
+        if let lastRunPath = lastRunPath {
+            LastRun.write(LastRunRecord(
+                sessionId: sessionId,
+                runType: runType,
+                status: status,
+                toolVersion: version,
+                startTime: record.startTime,
+                endTime: record.endTime,
+                durationSeconds: record.durationSeconds,
+                errors: summary.errors,
+                warnings: summary.warnings,
+                items: items
+            ), to: lastRunPath)
+        }
     }
 
     // MARK: - Classification

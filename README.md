@@ -189,6 +189,41 @@ Configure via managed preferences (`com.github.bootstrapmate`) or the `--reporti
 | `reportingHeader` | string | Optional `Authorization` header value sent with the POST. |
 
 The POST is best-effort: it is bounded by a short timeout and never fails the run. Payload fields include `tool`, `platform`, `version`, `runId`, `success`, `startTime`/`endTime`, `durationSeconds`, `architecture`, `hostname`, `serialNumber`, `manifestUrl`, and per-phase outcomes (keyed `Preflight`/`SetupAssistant`/`Userland`, each with stage, exit code, and any error).
+
+### Session run type
+
+Each run's `session.json` carries a `run_type` set from the preflight's decision: `skip`, `baseline` or `provisioning`. A run with no preflight, or whose preflight failed, stays `provisioning`.
+
+### Last-run summary
+
+Every run also keeps a summary of itself at `/Library/Managed Bootstrap/last-run.json`, outside the log directories so retention never removes it. It is written when the run starts with status `running`, so a run that crashes or is killed still leaves a record, and rewritten atomically when the run ends.
+
+```json
+{
+  "session_id": "2026-10-04-120045",
+  "run_type": "provisioning",
+  "status": "partial_failure",
+  "tool_version": "2026.10.04.1200",
+  "start_time": "2026-10-04T19:00:45.738Z",
+  "end_time": "2026-10-04T19:15:47.754Z",
+  "duration_seconds": 902,
+  "errors": 1,
+  "warnings": 0,
+  "items": [
+    { "name": "Tools", "stage": "setupassistant", "result": "installed" },
+    { "name": "Agent", "stage": "setupassistant", "result": "failed", "error": "Download failed" }
+  ]
+}
+```
+
+`status` uses the same values as `session.json`: `running`, `completed`, `partial_failure` or `failed`. Each item's `stage` is `setupassistant` or `userland`, its `result` is `installed`, `skipped` or `failed`, and `error` is present only on failures.
+
+`managedbootstrapinstall --last-run` prints the record as one line of at most 1000 characters, suited to an MDM custom attribute or a script result. The time is the end time, or the start time while a run is going, in UTC to the minute. It prints `no run recorded` when there is no file, and always exits 0.
+
+```
+2026-10-04T19:15Z provisioning partial_failure v2026.10.04.1200 installed=1 skipped=0 failed=1: Agent: Download failed
+```
+
 ### Package signature verification
 
 Before any installer package is handed to `/usr/sbin/installer` (which runs as root), BootstrapMate verifies its code-signing provenance with `pkgutil --check-signature`. The manifest SHA-256 only proves a download matches the manifest — it does not prove the manifest itself is authentic. The signature gate ensures a package was produced by a trusted Apple Developer ID before it executes.
