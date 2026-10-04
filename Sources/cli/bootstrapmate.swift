@@ -28,8 +28,11 @@ struct BootstrapMate: ParsableCommand {
     @Flag(name: .long, help: "Download and verify every item, but install nothing, run no scripts and leave the Mac unchanged.")
     var dryRun: Bool = false
 
-    @Flag(name: .long, help: "Follow HTTP redirects while downloading manifests and artifacts.")
-    var followRedirects: Bool = false
+    @Flag(
+        inversion: .prefixedNo,
+        help: "Follow HTTP redirects when downloading the manifest and its items (default: on, or the followRedirects preference). --no-follow-redirects refuses them."
+    )
+    var followRedirects: Bool?
 
     @Flag(name: .long, help: "Only run userland scripts and exit.")
     var userscript: Bool = false

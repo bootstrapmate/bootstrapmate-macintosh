@@ -40,7 +40,7 @@ final class SettingsViewModel {
     var jsonUrl: String = "" { didSet { scheduleAutoSave() } }
     var authorizationHeader: String = "" { didSet { scheduleAutoSave() } }
     var hasExistingAuth: Bool = false
-    var followRedirects: Bool = false { didSet { scheduleAutoSave() } }
+    var followRedirects: Bool = true { didSet { scheduleAutoSave() } }
 
     // Behavior
     var reboot: Bool = false { didSet { scheduleAutoSave() } }
@@ -229,7 +229,7 @@ final class SettingsViewModel {
         var args: [String] = []
         if !jsonUrl.isEmpty { args.append(contentsOf: ["--jsonurl", jsonUrl]) }
         if !authorizationHeader.isEmpty { args.append(contentsOf: ["--headers", authorizationHeader]) }
-        if followRedirects { args.append("--follow-redirects") }
+        if !followRedirects { args.append("--no-follow-redirects") }
         if dryRun { args.append("--dry-run") }
         if reboot { args.append("--reboot") }
         if silentMode { args.append("--silent") }

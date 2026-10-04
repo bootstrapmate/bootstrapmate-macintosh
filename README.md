@@ -125,6 +125,7 @@ Every item in `preflight`, `setupassistant` and `userland` takes the same fields
 | `packageid`, `version` | no | | A package whose receipt shows this version or newer is skipped. |
 | `retries` | no | `3` | Download attempts before the item fails. |
 | `retrywait` | no | `5` | Seconds between download attempts. |
+| `followRedirects` | no | the run-wide setting | `false` refuses HTTP redirects for this item's download; `true` follows them. |
 | `skipIf` | no | | `arm64` or `x86_64`: skip the item on that architecture. |
 | `donotwait` | no | `false` | Start a script and move on without waiting for it to finish. |
 | `baseline` | no | `true` | Set `false` to leave the item out of baseline runs. |
@@ -132,6 +133,10 @@ Every item in `preflight`, `setupassistant` and `userland` takes the same fields
 ## Dry run
 
 `managedbootstrapinstall --dry-run` (or the `dryRun` managed preference) rehearses a manifest against a real Mac without changing it. Every item is downloaded and its hash checked, and every package's signature is checked, so a broken URL, a stale hash or an untrusted package fails the rehearsal just as it would fail a real run. Nothing is installed, no script runs (preflight included), nothing is added to the install ledger, and the run does not reboot, post a report, mark the Mac complete or remove its LaunchDaemon. Because the preflight does not run, a dry run always rehearses the full provisioning path. Items are logged as `[Dry Run] Would install` or `[Dry Run] Would run`, recorded as skipped, and the session's run type is `dry-run`.
+
+## HTTP redirects
+
+Redirects are followed by default, for the manifest and for every item. Set the `followRedirects` managed preference to `false`, or pass `--no-follow-redirects`, to refuse them: a redirected download then fails with the 3xx status and the address it pointed to, instead of fetching from wherever the redirect leads. An item's own `followRedirects` field overrides the run-wide setting for that item.
 
 ## Preflight exit codes
 

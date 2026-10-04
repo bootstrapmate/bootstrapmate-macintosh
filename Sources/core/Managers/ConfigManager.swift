@@ -43,7 +43,7 @@ public struct BootstrapMateConfig {
     public init(
         jsonUrl: String? = nil,
         authorizationHeader: String? = nil,
-        followRedirects: Bool = false,
+        followRedirects: Bool = true,
         dryRun: Bool = false,
         reboot: Bool = false,
         userscriptOnly: Bool = false,
