@@ -1184,3 +1184,116 @@ struct ManagedPreferenceTests {
         #expect(try FileManager.default.contentsOfDirectory(atPath: dir).isEmpty)
     }
 }
+
+// MARK: - App rename upgrade Tests
+
+/// Runs the real postinstall against a scratch root laid out like a Mac with
+/// the pre-rename BootstrapMate.app installed, after the installer has laid
+/// down the new payload. launchd is never touched under a test root.
+@Suite("App rename upgrade Tests")
+struct AppRenameUpgradeTests {
+
+    private var repoRoot: URL {
+        URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+    }
+
+    private let newApp = "/Applications/Utilities/Managed Bootstrap Install.app"
+    private let oldApp = "/Applications/Utilities/BootstrapMate.app"
+
+    private func write(_ text: String, to path: String, executable: Bool = false) throws {
+        try FileManager.default.createDirectory(
+            atPath: (path as NSString).deletingLastPathComponent,
+            withIntermediateDirectories: true
+        )
+        try Data(text.utf8).write(to: URL(fileURLWithPath: path))
+        if executable {
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: path)
+        }
+    }
+
+    private func programArgument(_ plistPath: String) -> String? {
+        guard let data = FileManager.default.contents(atPath: plistPath),
+              let plist = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
+              let args = plist["ProgramArguments"] as? [String] else { return nil }
+        return args.first
+    }
+
+    @Test("The LaunchDaemon runs the CLI at the path the code expects")
+    func daemonPathMatchesConstant() {
+        let plist = repoRoot.appendingPathComponent("packaging/LaunchDaemons/com.github.bootstrapmate.plist").path
+        #expect(programArgument(plist) == BootstrapMateConstants.executablePath)
+        #expect(BootstrapMateConstants.executablePath.hasPrefix(newApp + "/"))
+    }
+
+    @Test("An upgrade from BootstrapMate.app leaves one app, repointed links and the state untouched")
+    func upgradeOverOldLayout() throws {
+        let fm = FileManager.default
+        let root = NSTemporaryDirectory() + "bootstrapmate-upgrade-" + UUID().uuidString
+        defer { try? fm.removeItem(atPath: root) }
+        let stub = "#!/bin/sh\necho 2026.10.04.1228\n"
+
+        // The layout an install of the pre-rename build leaves behind.
+        for binary in ["managedbootstrapinstall", "BootstrapMateGUI", "BootstrapMateHelper"] {
+            try write(stub, to: root + oldApp + "/Contents/MacOS/" + binary, executable: true)
+        }
+        try fm.createDirectory(atPath: root + "/usr/local/bootstrapmate", withIntermediateDirectories: true)
+        try fm.createDirectory(atPath: root + "/usr/local/bin", withIntermediateDirectories: true)
+        try fm.createSymbolicLink(
+            atPath: root + "/usr/local/bootstrapmate/managedbootstrapinstall",
+            withDestinationPath: root + oldApp + "/Contents/MacOS/managedbootstrapinstall"
+        )
+        try fm.createSymbolicLink(
+            atPath: root + "/usr/local/bin/managedbootstrapinstall",
+            withDestinationPath: root + oldApp + "/Contents/MacOS/managedbootstrapinstall"
+        )
+        try write("{}", to: root + "/Library/Managed Bootstrap/installed.json")
+        try write("{\"status\":\"completed\"}", to: root + "/Library/Managed Bootstrap/last-run.json")
+        try fm.createDirectory(atPath: root + "/tmp", withIntermediateDirectories: true)
+
+        // The new payload, as the installer lays it down before postinstall.
+        for binary in ["managedbootstrapinstall", "BootstrapMateGUI", "BootstrapMateHelper"] {
+            try write(stub, to: root + newApp + "/Contents/MacOS/" + binary, executable: true)
+        }
+        try fm.createDirectory(atPath: root + newApp + "/Contents/Library/LaunchDaemons", withIntermediateDirectories: true)
+        try fm.copyItem(
+            atPath: repoRoot.appendingPathComponent("packaging/LaunchDaemons/com.github.bootstrapmate.helper.plist").path,
+            toPath: root + newApp + "/Contents/Library/LaunchDaemons/com.github.bootstrapmate.helper.plist"
+        )
+        try fm.createDirectory(atPath: root + "/Library/LaunchDaemons", withIntermediateDirectories: true)
+        try fm.copyItem(
+            atPath: repoRoot.appendingPathComponent("packaging/LaunchDaemons/com.github.bootstrapmate.plist").path,
+            toPath: root + "/Library/LaunchDaemons/com.github.bootstrapmate.plist"
+        )
+
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        task.arguments = [repoRoot.appendingPathComponent("packaging/scripts/postinstall").path]
+        task.environment = ["BOOTSTRAPMATE_TEST_ROOT": root, "PATH": "/usr/bin:/bin:/usr/sbin:/sbin"]
+        task.standardOutput = FileHandle.nullDevice
+        task.standardError = FileHandle.nullDevice
+        try task.run()
+        task.waitUntilExit()
+        #expect(task.terminationStatus == 0)
+
+        // One app: the old bundle is gone, the new one is in place.
+        #expect(fm.fileExists(atPath: root + oldApp) == false)
+        #expect(fm.isExecutableFile(atPath: root + newApp + "/Contents/MacOS/managedbootstrapinstall"))
+
+        // Both CLI links point into the new bundle.
+        let newCLI = root + newApp + "/Contents/MacOS/managedbootstrapinstall"
+        #expect(try fm.destinationOfSymbolicLink(atPath: root + "/usr/local/bin/managedbootstrapinstall") == newCLI)
+        #expect(try fm.destinationOfSymbolicLink(atPath: root + "/usr/local/bootstrapmate/managedbootstrapinstall") == newCLI)
+
+        // launchd runs both jobs from the new bundle on the boot volume.
+        #expect(programArgument(root + "/Library/LaunchDaemons/com.github.bootstrapmate.plist") == BootstrapMateConstants.executablePath)
+        #expect(programArgument(root + "/Library/LaunchDaemons/com.github.bootstrapmate.helper.plist")
+                == newApp + "/Contents/MacOS/BootstrapMateHelper")
+
+        // State under /Library/Managed Bootstrap survives.
+        #expect(fm.contents(atPath: root + "/Library/Managed Bootstrap/installed.json") == Data("{}".utf8))
+        #expect(fm.fileExists(atPath: root + "/Library/Managed Bootstrap/last-run.json"))
+    }
+}
