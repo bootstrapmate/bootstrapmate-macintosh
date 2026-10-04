@@ -11,8 +11,8 @@
 #   type            (required) One of: rootscript | package | userscript
 #   packageid       (optional) Bundle identifier for packages — used for receipt checks
 #   version         (optional) Minimum required version string for packages
-#   retries         (optional) Number of download/install retry attempts (default: 3)
-#   retrywait       (optional) Seconds to wait between retries (default: 10)
+#   retries         (optional) Download attempts before the item fails (default: 3)
+#   retrywait       (optional) Seconds to wait between retries (default: 5)
 #   followRedirects (optional) Follow HTTP redirects for this item (default: false)
 #   skipIf          (optional) Skip this item on a given architecture: arm64 | x86_64
 #   donotwait       (optional) Do not wait for this item to finish before continuing
@@ -43,7 +43,7 @@ setupassistant:
     packageid: com.googlecode.munki.core
     version: "6.0.0"
     retries: 3
-    retrywait: 10
+    retrywait: 5
     followRedirects: true
 
   - file: /Library/Application Support/BootstrapMate/munkitools-admin.pkg
@@ -54,7 +54,7 @@ setupassistant:
     packageid: com.googlecode.munki.admin
     version: "6.0.0"
     retries: 3
-    retrywait: 10
+    retrywait: 5
     skipIf: arm64   # skip on Apple Silicon — Intel-only tool
 
   - file: /Library/Application Support/BootstrapMate/configure-munki.sh

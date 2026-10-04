@@ -20,7 +20,7 @@
       "packageid": "com.googlecode.munki.core",
       "version": "6.0.0",
       "retries": 3,
-      "retrywait": 10,
+      "retrywait": 5,
       "followRedirects": true
     },
     {
@@ -32,7 +32,7 @@
       "packageid": "com.googlecode.munki.admin",
       "version": "6.0.0",
       "retries": 3,
-      "retrywait": 10,
+      "retrywait": 5,
       "skipIf": "arm64"
     },
     {

@@ -818,3 +818,40 @@ struct LastRunTests {
         #expect(Logger.lastRunPath(forLogsDirectory: BootstrapMateConstants.logsDirectory) == BootstrapMateConstants.lastRunPath)
     }
 }
+
+@Suite("Deployment target Tests")
+struct DeploymentTargetTests {
+
+    /// The repository root, from this file's location in Tests/<target>/.
+    private var root: URL {
+        URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+    }
+
+    private func read(_ path: String) throws -> String {
+        try String(contentsOf: root.appendingPathComponent(path), encoding: .utf8)
+    }
+
+    private func firstMatch(_ pattern: String, in text: String) -> String? {
+        guard let regex = try? NSRegularExpression(pattern: pattern),
+              let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
+              let range = Range(match.range(at: 1), in: text) else { return nil }
+        return String(text[range])
+    }
+
+    @Test("Package.swift, the app's Info.plist and the preinstall gate name the same macOS")
+    func floorsAgree() throws {
+        let package = firstMatch(#"\.macOS\(\.v(\d+)\)"#, in: try read("Package.swift"))
+        let plist = firstMatch(
+            #"<key>LSMinimumSystemVersion</key>\s*<string>(\d+)\.0</string>"#,
+            in: try read("packaging/resources/Info.plist.template")
+        )
+        let preinstall = firstMatch(#"MINIMUM_MACOS=(\d+)"#, in: try read("packaging/scripts/preinstall"))
+
+        #expect(package != nil)
+        #expect(package == plist)
+        #expect(package == preinstall)
+    }
+}
