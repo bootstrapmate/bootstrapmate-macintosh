@@ -85,9 +85,8 @@ public class CleanupManager {
     }
     
     /// Cleans the cache directory (removes all files in /Library/Managed Bootstrap/cache/)
-    /// This should only be called after a successful bootstrap run when retainCache = false
-    public func cleanCache() {
-        let cacheDir = BootstrapMateConstants.cacheDirectory
+    /// Called after a successful bootstrap run when retainCache is false.
+    public func cleanCache(at cacheDir: String = BootstrapMateConstants.cacheDirectory) {
         Logger.debug("Cleaning cache directory: \(cacheDir)")
         
         guard FileManager.default.fileExists(atPath: cacheDir) else {

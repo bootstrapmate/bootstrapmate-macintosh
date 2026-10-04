@@ -138,6 +138,25 @@ Every item in `preflight`, `setupassistant` and `userland` takes the same fields
 
 Redirects are followed by default, for the manifest and for every item. Set the `followRedirects` managed preference to `false`, or pass `--no-follow-redirects`, to refuse them: a redirected download then fails with the 3xx status and the address it pointed to, instead of fetching from wherever the redirect leads. An item's own `followRedirects` field overrides the run-wide setting for that item.
 
+## Managed preferences
+
+BootstrapMate reads these keys from the `com.github.bootstrapmate` domain, normally delivered in a configuration profile. `examples/config.mobileconfig` sets each one. The reporting and signature keys are covered in their own sections below.
+
+| Key | Type | Default | Effect |
+|---|---|---|---|
+| `url` | string | | Manifest URL. Required unless `--jsonurl` is passed. |
+| `headers` | string | | `Authorization` header sent with the manifest request. |
+| `networkTimeout` | integer | `120` | Seconds to wait for a network connection before the run starts. `--network-timeout` overrides it. |
+| `enableDialog` | bool | `true` | Show the SwiftDialog window during a provisioning run. `--no-dialog` and `--silent` turn it off whatever this says. |
+| `dialogTitle`, `dialogMessage` | string | | The window's title and message. `--dialog-title` and `--dialog-message` override them. |
+| `dialogIcon` | string | gear symbol | The window's icon: a file path or a SwiftDialog `SF=` symbol. |
+| `blurScreen` | bool | `false` | Blur the screen behind the window. |
+| `retainCache` | bool | `true` | Keep downloaded payloads in `/Library/Managed Bootstrap/cache` after a successful run, so a later run does not download them again. `false` empties the cache when a run succeeds. |
+| `userlandLoginTimeout` | integer | `3600` | Seconds to wait for a user to log in before skipping the userland stage. `0` waits forever. |
+| `reboot`, `dryRun`, `silentMode`, `verboseMode`, `followRedirects` | bool | | As the matching CLI flags. |
+
+Earlier builds also accepted `installPath`, `daemonIdentifier` and `agentIdentifier` (and their aliases `iapath`, `ldidentifier`, `laidentifier`) but never used them. The install location and the LaunchDaemon label are fixed by the package, so these keys are no longer read, and a run that finds one set logs a warning naming it.
+
 ## Preflight exit codes
 
 The preflight rootscript decides what the rest of the run does:

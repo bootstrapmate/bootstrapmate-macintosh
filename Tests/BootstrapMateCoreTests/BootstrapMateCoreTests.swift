@@ -1120,3 +1120,67 @@ struct RedirectTests {
     }
 }
 
+// MARK: - Managed preference Tests
+
+@Suite("Managed preference Tests")
+struct ManagedPreferenceTests {
+
+    @Test("Defaults: the cache is kept and the network wait is 120 seconds")
+    func defaults() {
+        let config = BootstrapMateConfig()
+        #expect(config.retainCache == true)
+        #expect(config.networkTimeout == 120)
+        #expect(config.enableDialog == true)
+    }
+
+    @Test("Dialog settings come from the preferences")
+    func dialogFromPreferences() {
+        var prefs = BootstrapMateConfig()
+        prefs.enableDialog = false
+        prefs.dialogTitle = "Title"
+        prefs.dialogMessage = "Message"
+        prefs.dialogIcon = "/tmp/icon.png"
+        prefs.blurScreen = true
+
+        let config = IAOrchestrator.OrchestratorConfig(preferences: prefs)
+        #expect(config.enableDialog == false)
+        #expect(config.dialogTitle == "Title")
+        #expect(config.dialogMessage == "Message")
+        #expect(config.dialogIcon == "/tmp/icon.png")
+        #expect(config.blurScreen == true)
+    }
+
+    @Test("CLI title and message override the preferences; --no-dialog and --silent win over enableDialog")
+    func cliOverrides() {
+        let prefs = BootstrapMateConfig(enableDialog: true, dialogTitle: "Pref title", dialogMessage: "Pref message")
+
+        let fromCLI = IAOrchestrator.OrchestratorConfig(preferences: prefs, title: "CLI title", message: "CLI message")
+        #expect(fromCLI.enableDialog == true)
+        #expect(fromCLI.dialogTitle == "CLI title")
+        #expect(fromCLI.dialogMessage == "CLI message")
+
+        #expect(IAOrchestrator.OrchestratorConfig(preferences: prefs, noDialog: true).enableDialog == false)
+        #expect(IAOrchestrator.OrchestratorConfig(preferences: prefs, silent: true).enableDialog == false)
+    }
+
+    @Test("The keys that were never used are listed as unsupported")
+    func unsupportedKeys() {
+        for key in ["installPath", "iapath", "daemonIdentifier", "ldidentifier", "agentIdentifier", "laidentifier"] {
+            #expect(ConfigManager.unsupportedKeys.contains(key))
+        }
+    }
+
+    @Test("Cleaning the cache empties the directory and keeps it")
+    func cleanCache() throws {
+        let dir = NSTemporaryDirectory() + "bootstrapmate-cache-" + UUID().uuidString
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+        try FileManager.default.createDirectory(atPath: dir + "/sub", withIntermediateDirectories: true)
+        try Data("x".utf8).write(to: URL(fileURLWithPath: dir + "/a.pkg"))
+        try Data("y".utf8).write(to: URL(fileURLWithPath: dir + "/sub/b.sh"))
+
+        CleanupManager.shared.cleanCache(at: dir)
+
+        #expect(FileManager.default.fileExists(atPath: dir))
+        #expect(try FileManager.default.contentsOfDirectory(atPath: dir).isEmpty)
+    }
+}

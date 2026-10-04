@@ -221,19 +221,8 @@ struct SettingsView: View {
     private var advancedSection: some View {
         GroupBox {
             VStack(alignment: .leading, spacing: 12) {
-                settingRow("customInstallPath", label: "Install Path") {
-                    TextField("/Library/Managed Bootstrap", text: $viewModel.customInstallPath)
-                        .textFieldStyle(.roundedBorder)
-                }
-
-                settingRow("daemonIdentifier", label: "Daemon Identifier") {
-                    TextField("com.github.bootstrapmate", text: $viewModel.daemonIdentifier)
-                        .textFieldStyle(.roundedBorder)
-                }
-
-                settingRow("agentIdentifier", label: "Agent Identifier") {
-                    TextField("com.github.bootstrapmate", text: $viewModel.agentIdentifier)
-                        .textFieldStyle(.roundedBorder)
+                settingRow("retainCache") {
+                    Toggle("Keep downloaded payloads after a successful run", isOn: $viewModel.retainCache)
                 }
 
                 settingRow("networkTimeout", label: "Network Timeout") {
