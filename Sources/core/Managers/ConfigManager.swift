@@ -39,6 +39,10 @@ public struct BootstrapMateConfig {
     public var networkTimeout: Int
     // Userland: how long to wait for a console user before skipping the stage
     public var userlandLoginTimeout: Int
+    /// Minimum hours between baseline runs; 0 or negative turns the throttle off.
+    public var baselineMinIntervalHours: Int
+    /// A file whose presence exempts the next run from the baseline throttle.
+    public var forceRunFile: String
     
     public init(
         jsonUrl: String? = nil,
@@ -61,7 +65,9 @@ public struct BootstrapMateConfig {
         dialogIcon: String? = nil,
         blurScreen: Bool = false,
         networkTimeout: Int = 120,
-        userlandLoginTimeout: Int = 3600
+        userlandLoginTimeout: Int = 3600,
+        baselineMinIntervalHours: Int = BaselineThrottle.defaultMinIntervalHours,
+        forceRunFile: String = BaselineThrottle.defaultForceFile
     ) {
         self.jsonUrl = jsonUrl
         self.authorizationHeader = authorizationHeader
@@ -84,6 +90,8 @@ public struct BootstrapMateConfig {
         self.blurScreen = blurScreen
         self.networkTimeout = networkTimeout
         self.userlandLoginTimeout = userlandLoginTimeout
+        self.baselineMinIntervalHours = baselineMinIntervalHours
+        self.forceRunFile = forceRunFile
     }
 }
 
@@ -451,6 +459,14 @@ public final class ConfigManager {
 
         // Userland: seconds to wait for a console user before skipping the
         // stage. 0 or negative means wait indefinitely.
+        // Baseline throttle
+        if let value = CFPreferencesCopyAppValue("baselineMinIntervalHours" as CFString, cfDomain) as? Int {
+            config.baselineMinIntervalHours = value
+        }
+        if let value = CFPreferencesCopyAppValue("forceRunFile" as CFString, cfDomain) as? String, !value.isEmpty {
+            config.forceRunFile = value
+        }
+
         let loginTimeoutKeys = ["userlandLoginTimeout", "UserlandLoginTimeout"]
         for key in loginTimeoutKeys {
             if let value = CFPreferencesCopyAppValue(key as CFString, cfDomain) as? Int {
@@ -533,6 +549,8 @@ public final class ConfigManager {
         Logger.debug("  blurScreen: \(config.blurScreen)")
         Logger.debug("  networkTimeout: \(config.networkTimeout)")
         Logger.debug("  userlandLoginTimeout: \(config.userlandLoginTimeout)")
+        Logger.debug("  baselineMinIntervalHours: \(config.baselineMinIntervalHours)")
+        Logger.debug("  forceRunFile: \(config.forceRunFile)")
     }
 }
 

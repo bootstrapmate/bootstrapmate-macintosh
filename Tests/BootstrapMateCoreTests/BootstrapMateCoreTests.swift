@@ -1297,3 +1297,119 @@ struct AppRenameUpgradeTests {
         #expect(fm.fileExists(atPath: root + "/Library/Managed Bootstrap/last-run.json"))
     }
 }
+
+// MARK: - Baseline throttle Tests
+
+@Suite("Baseline throttle Tests")
+struct BaselineThrottleTests {
+
+    private let now = Date(timeIntervalSince1970: 1_800_000_000)
+
+    private func state(_ status: String, hoursAgo: Double, failures: Int = 0) -> BaselineState {
+        BaselineState(endTime: now.addingTimeInterval(-hoursAgo * 3600), status: status, consecutiveFailures: failures)
+    }
+
+    private func skips(_ decision: BaselineThrottle.Decision) -> Bool {
+        if case .skip = decision { return true }
+        return false
+    }
+
+    @Test("A young completed baseline skips the run")
+    func youngBaselineSkips() {
+        #expect(skips(BaselineThrottle.decide(state: state("completed", hoursAgo: 24), now: now)))
+        #expect(skips(BaselineThrottle.decide(state: state("completed", hoursAgo: 143.9), now: now)))
+    }
+
+    @Test("An old completed baseline runs, so a weekly schedule still runs")
+    func oldBaselineRuns() {
+        #expect(!skips(BaselineThrottle.decide(state: state("completed", hoursAgo: 144), now: now)))
+        #expect(!skips(BaselineThrottle.decide(state: state("completed", hoursAgo: 168), now: now)))
+    }
+
+    @Test("A failed baseline retries once after 24 hours, never sooner")
+    func failedRetriesAfterADay() {
+        for status in ["failed", "partial_failure"] {
+            #expect(skips(BaselineThrottle.decide(state: state(status, hoursAgo: 2, failures: 1), now: now)))
+            #expect(skips(BaselineThrottle.decide(state: state(status, hoursAgo: 23.9, failures: 1), now: now)))
+            #expect(!skips(BaselineThrottle.decide(state: state(status, hoursAgo: 24, failures: 1), now: now)))
+        }
+    }
+
+    @Test("Once the retry has failed too, the full interval applies")
+    func retryUsedWaitsFullInterval() {
+        #expect(skips(BaselineThrottle.decide(state: state("partial_failure", hoursAgo: 30, failures: 2), now: now)))
+        #expect(!skips(BaselineThrottle.decide(state: state("partial_failure", hoursAgo: 144, failures: 2), now: now)))
+    }
+
+    @Test("The force file always lets the run go ahead")
+    func forceFileRuns() {
+        #expect(!skips(BaselineThrottle.decide(state: state("completed", hoursAgo: 1), now: now, forceFilePresent: true)))
+        #expect(!skips(BaselineThrottle.decide(state: state("failed", hoursAgo: 1, failures: 3), now: now, forceFilePresent: true)))
+    }
+
+    @Test("No recorded baseline runs, and an interval of 0 turns the throttle off")
+    func noStateAndDisabled() {
+        #expect(!skips(BaselineThrottle.decide(state: nil, now: now)))
+        #expect(!skips(BaselineThrottle.decide(state: state("completed", hoursAgo: 1), now: now, minIntervalHours: 0)))
+    }
+
+    @Test("The interval follows the preference")
+    func customInterval() {
+        #expect(!skips(BaselineThrottle.decide(state: state("completed", hoursAgo: 25), now: now, minIntervalHours: 24)))
+        #expect(skips(BaselineThrottle.decide(state: state("completed", hoursAgo: 25), now: now, minIntervalHours: 48)))
+    }
+
+    @Test("Consecutive failures count up and reset on a completed baseline")
+    func nextState() {
+        let first = BaselineThrottle.next(after: nil, status: "partial_failure", endTime: now)
+        #expect(first.consecutiveFailures == 1)
+        let second = BaselineThrottle.next(after: first, status: "partial_failure", endTime: now)
+        #expect(second.consecutiveFailures == 2)
+        let done = BaselineThrottle.next(after: second, status: "completed", endTime: now)
+        #expect(done.consecutiveFailures == 0)
+        #expect(BaselineThrottle.next(after: done, status: "failed", endTime: now).consecutiveFailures == 1)
+    }
+
+    @Test("The state survives a save and load, and clearing removes it")
+    func persistence() throws {
+        let path = NSTemporaryDirectory() + "baseline-\(UUID().uuidString)/baseline.json"
+        defer { try? FileManager.default.removeItem(atPath: (path as NSString).deletingLastPathComponent) }
+        let saved = state("completed", hoursAgo: 3)
+        #expect(BaselineThrottle.save(saved, to: path))
+        #expect(BaselineThrottle.load(from: path) == saved)
+        BaselineThrottle.clear(at: path)
+        #expect(BaselineThrottle.load(from: path) == nil)
+    }
+
+    @Test("The default interval is 144 hours")
+    func defaults() {
+        #expect(BootstrapMateConfig().baselineMinIntervalHours == 144)
+    }
+}
+
+// MARK: - Run bounds Tests
+
+@Suite("Run bounds Tests")
+struct RunBoundsTests {
+
+    @Test("Download attempts are kept within 1 and the maximum")
+    func attemptsClamp() {
+        #expect(BootstrapMateConstants.downloadAttempts(requested: nil) == 3)
+        #expect(BootstrapMateConstants.downloadAttempts(requested: 0) == 1)
+        #expect(BootstrapMateConstants.downloadAttempts(requested: 1000) == BootstrapMateConstants.maxDownloadAttempts)
+        #expect(BootstrapMateConstants.retryDelay(requested: 100_000) == BootstrapMateConstants.maxRetryDelay)
+        #expect(BootstrapMateConstants.retryDelay(requested: -5) == 0)
+    }
+
+    @Test("The LaunchDaemon starts once at load and never relaunches itself")
+    func daemonNeverLoops() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let data = try Data(contentsOf: root.appendingPathComponent("packaging/LaunchDaemons/com.github.bootstrapmate.plist"))
+        let plist = try #require(try PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any])
+        #expect(plist["RunAtLoad"] as? Bool == true)
+        for key in ["KeepAlive", "StartInterval", "StartCalendarInterval", "WatchPaths", "QueueDirectories", "StartOnMount"] {
+            #expect(plist[key] == nil, "\(key) would relaunch the daemon")
+        }
+    }
+}
