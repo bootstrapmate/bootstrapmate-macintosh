@@ -138,13 +138,13 @@ Every item in `preflight`, `setupassistant` and `userland` takes the same fields
 
 ## Baseline throttle
 
-Every run fetches the manifest and may download payloads, so a baseline must not repeat sooner than intended. BootstrapMate records the outcome of each baseline run in `/Library/Managed Bootstrap/baseline.json`. At the start of the next run, before it waits for the network or fetches anything, it decides whether to go ahead:
+A baseline run may download payloads, so it must not repeat sooner than intended. BootstrapMate records the outcome of each baseline run in `/Library/Managed Bootstrap/baseline.json`. The throttle applies only after the preflight has chosen baseline mode. The manifest and the preflight script are still fetched, which is small, but a throttled baseline downloads and installs no items. A Mac whose preflight chooses provisioning, for example one put back on a provisioning manifest, always provisions, however recent its last baseline:
 
 - After a completed baseline, the next run waits `baselineMinIntervalHours` (default 144, six days, so a weekly schedule still runs every time).
 - After a baseline that ended `partial_failure` or `failed`, one retry is allowed after 24 hours. If that retry does not complete either, the full interval applies again.
-- A throttled run ends as `skip`, logs why, and removes its LaunchDaemon like any other finished run.
+- A throttled baseline ends as `skip`, logs why, and removes its LaunchDaemon like any other finished run.
 
-The throttle never holds back a run when there is no baseline record. A Mac being provisioned has none, and a provisioning run clears the record. It also never holds back a run while the file named by `forceRunFile` exists, or a dry run, or `--userscript`. The throttle only checks for the force file; the preflight is what consumes it.
+There is no baseline record on a Mac being provisioned, and a provisioning run clears it. A baseline also goes ahead while the file named by `forceRunFile` exists. Dry runs and `--userscript` never run the preflight, so they are never throttled. The throttle only checks for the force file; the preflight is what consumes it.
 
 Packages are not downloaded when nothing has changed. A package whose receipt shows the manifest's version is skipped before any download. In a baseline run, so is a package file whose hash is already in the install ledger, unless its receipt now shows an older version. Downloaded files stay in the cache while `retainCache` is true, so an unchanged script is not downloaded again either.
 
