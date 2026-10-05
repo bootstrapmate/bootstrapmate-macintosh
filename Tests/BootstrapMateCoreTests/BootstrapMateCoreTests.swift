@@ -1230,6 +1230,28 @@ struct AppRenameUpgradeTests {
 
     @Test("An upgrade from BootstrapMate.app leaves one app, repointed links and the state untouched")
     func upgradeOverOldLayout() throws {
+        _ = try runUpgrade(runningPid: nil)
+    }
+
+    @Test("An upgrade during a run never boots the running job out; an idle one is reloaded")
+    func upgradeLeavesRunningJobAlone() throws {
+        // The daemon's own bootout, not the helper's (.helper suffix).
+        func bootsOutDaemon(_ log: String) -> Bool {
+            log.split(separator: "\n").contains { $0.hasSuffix("skipped: launchctl bootout system/com.github.bootstrapmate") }
+        }
+
+        let busy = try runUpgrade(runningPid: "4242")
+        #expect(busy.contains("run is in progress (pid 4242)"))
+        #expect(!bootsOutDaemon(busy))
+        #expect(!busy.contains("skipped: launchctl load"))
+
+        let idle = try runUpgrade(runningPid: nil)
+        #expect(bootsOutDaemon(idle))
+        #expect(idle.contains("skipped: launchctl load"))
+    }
+
+    /// Runs the postinstall over the pre-rename layout and returns its log.
+    private func runUpgrade(runningPid: String?) throws -> String {
         let fm = FileManager.default
         let root = NSTemporaryDirectory() + "bootstrapmate-upgrade-" + UUID().uuidString
         defer { try? fm.removeItem(atPath: root) }
@@ -1271,7 +1293,9 @@ struct AppRenameUpgradeTests {
         let task = Process()
         task.executableURL = URL(fileURLWithPath: "/bin/zsh")
         task.arguments = [repoRoot.appendingPathComponent("packaging/scripts/postinstall").path]
-        task.environment = ["BOOTSTRAPMATE_TEST_ROOT": root, "PATH": "/usr/bin:/bin:/usr/sbin:/sbin"]
+        var environment = ["BOOTSTRAPMATE_TEST_ROOT": root, "PATH": "/usr/bin:/bin:/usr/sbin:/sbin"]
+        if let runningPid { environment["BOOTSTRAPMATE_TEST_RUNNING_PID"] = runningPid }
+        task.environment = environment
         task.standardOutput = FileHandle.nullDevice
         task.standardError = FileHandle.nullDevice
         try task.run()
@@ -1295,6 +1319,7 @@ struct AppRenameUpgradeTests {
         // State under /Library/Managed Bootstrap survives.
         #expect(fm.contents(atPath: root + "/Library/Managed Bootstrap/installed.json") == Data("{}".utf8))
         #expect(fm.fileExists(atPath: root + "/Library/Managed Bootstrap/last-run.json"))
+        return (try? String(contentsOfFile: root + "/tmp/bootstrapmate-postinstall.log", encoding: .utf8)) ?? ""
     }
 }
 
@@ -1483,5 +1508,133 @@ extension DryRunTests {
         let result = try runWithYoungBaseline(preflightExit: Int(PreflightDecision.baselineExitCode))
         #expect(result.ran == false)
         #expect(result.downloaded == false)
+    }
+}
+
+// MARK: - Build version Tests
+
+@Suite("Build version Tests")
+struct BuildVersionTests {
+
+    private func makeApp(short: String, build: String) throws -> (root: String, cli: String, link: String) {
+        let root = NSTemporaryDirectory() + "bootstrapmate-version-" + UUID().uuidString
+        let macOS = root + "/Managed Bootstrap Install.app/Contents/MacOS"
+        try FileManager.default.createDirectory(atPath: macOS, withIntermediateDirectories: true)
+        let cli = macOS + "/managedbootstrapinstall"
+        FileManager.default.createFile(atPath: cli, contents: Data("#!/bin/sh\n".utf8))
+        let plist: [String: Any] = ["CFBundleShortVersionString": short, "CFBundleVersion": build]
+        let data = try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0)
+        try data.write(to: URL(fileURLWithPath: root + "/Managed Bootstrap Install.app/Contents/Info.plist"))
+        try FileManager.default.createDirectory(atPath: root + "/bin", withIntermediateDirectories: true)
+        let link = root + "/bin/managedbootstrapinstall"
+        try FileManager.default.createSymbolicLink(atPath: link, withDestinationPath: cli)
+        return (root, cli, link)
+    }
+
+    @Test("The version comes from the bundle's Info.plist, is stable across reads, and resolves the PATH link")
+    func readsInfoPlist() async throws {
+        let app = try makeApp(short: "2026.10.05", build: "0926")
+        defer { try? FileManager.default.removeItem(atPath: app.root) }
+
+        let first = BuildInfo.version(executablePath: app.cli)
+        try await Task.sleep(for: .seconds(1.2))
+        let second = BuildInfo.version(executablePath: app.cli)
+        #expect(first == "2026.10.05.0926")
+        #expect(first == second)
+        #expect(BuildInfo.version(executablePath: app.link) == "2026.10.05.0926")
+    }
+
+    @Test("Outside an app bundle the build-time value is used, never the clock")
+    func fallbackIsNotTheClock() async throws {
+        let loose = NSTemporaryDirectory() + "loose-binary"
+        let first = BuildInfo.version(executablePath: loose)
+        try await Task.sleep(for: .seconds(1.2))
+        #expect(first == BuildVersion.value)
+        #expect(BuildInfo.version(executablePath: loose) == first)
+
+        let a = BootstrapMateConstants.version
+        try await Task.sleep(for: .seconds(1.2))
+        #expect(BootstrapMateConstants.version == a)
+        let clock = DateFormatter()
+        clock.dateFormat = "yyyy.MM.dd.HHmm"
+        #expect(a != clock.string(from: Date()) || a == BuildVersion.value)
+    }
+
+    @Test("A short version that already carries the build is not doubled")
+    func noDoubleBuild() throws {
+        let app = try makeApp(short: "2026.10.05.0926", build: "0926")
+        defer { try? FileManager.default.removeItem(atPath: app.root) }
+        #expect(BuildInfo.version(executablePath: app.cli) == "2026.10.05.0926")
+    }
+}
+
+// MARK: - Interrupted run Tests
+
+@Suite("Interrupted run Tests")
+struct InterruptedRunTests {
+
+    private func record(status: String, id: String = "2026-10-04-132100") -> LastRunRecord {
+        LastRunRecord(
+            sessionId: id, runType: "baseline", status: status, toolVersion: "2026.10.04.1228",
+            startTime: "2026-10-04T20:21:00.000Z", endTime: nil, durationSeconds: nil,
+            errors: 0, warnings: 0, items: []
+        )
+    }
+
+    @Test("A run left as running is recorded as interrupted, in last-run.json and its session.json")
+    func orphanBecomesInterrupted() throws {
+        let root = NSTemporaryDirectory() + "bootstrapmate-orphan-" + UUID().uuidString
+        defer { try? FileManager.default.removeItem(atPath: root) }
+        let logs = root + "/logs"
+        let lastRun = root + "/last-run.json"
+        let sessionDir = logs + "/2026-10-04/132100"
+        try FileManager.default.createDirectory(atPath: sessionDir, withIntermediateDirectories: true)
+        try Data(#"{"session_id":"2026-10-04-132100","status":"running"}"#.utf8)
+            .write(to: URL(fileURLWithPath: sessionDir + "/session.json"))
+        LastRun.write(record(status: "running"), to: lastRun)
+
+        let orphan = LastRun.recoverInterrupted(lastRunPath: lastRun, logsDirectory: logs)
+        #expect(orphan?.sessionId == "2026-10-04-132100")
+        #expect(LastRun.read(from: lastRun)?.status == "interrupted")
+        let session = try JSONSerialization.jsonObject(
+            with: Data(contentsOf: URL(fileURLWithPath: sessionDir + "/session.json"))
+        ) as? [String: Any]
+        #expect(session?["status"] as? String == "interrupted")
+        #expect(LastRun.summaryLine(path: lastRun).contains("interrupted"))
+    }
+
+    @Test("A run that finished is left alone")
+    func finishedRunUntouched() {
+        let root = NSTemporaryDirectory() + "bootstrapmate-orphan-" + UUID().uuidString
+        defer { try? FileManager.default.removeItem(atPath: root) }
+        let lastRun = root + "/last-run.json"
+        LastRun.write(record(status: "completed"), to: lastRun)
+        #expect(LastRun.recoverInterrupted(lastRunPath: lastRun, logsDirectory: root + "/logs") == nil)
+        #expect(LastRun.read(from: lastRun)?.status == "completed")
+        #expect(LastRun.recoverInterrupted(lastRunPath: root + "/missing.json", logsDirectory: root) == nil)
+    }
+
+    @Test("Only one run holds the lock; it frees when released")
+    func singleInstance() throws {
+        let path = NSTemporaryDirectory() + "bootstrapmate-lock-\(UUID().uuidString)/.run.lock"
+        defer { try? FileManager.default.removeItem(atPath: (path as NSString).deletingLastPathComponent) }
+        var first = RunLock.acquire(at: path)
+        #expect(first != nil)
+        #expect(RunLock.acquire(at: path) == nil)
+        first = nil
+        #expect(RunLock.acquire(at: path) != nil)
+    }
+
+    @Test("A session closed as interrupted writes that status to last-run.json")
+    func sigtermStatus() throws {
+        let root = NSTemporaryDirectory() + "bootstrapmate-sigterm-" + UUID().uuidString
+        defer { try? FileManager.default.removeItem(atPath: root) }
+        let lastRun = root + "/last-run.json"
+        let session = try #require(SessionLog(logsDirectory: root + "/logs", version: "test", runType: "baseline", lastRunPath: lastRun))
+        #expect(LastRun.read(from: lastRun)?.status == "running")
+        session.finish(status: LastRun.interruptedStatus)
+        #expect(LastRun.read(from: lastRun)?.status == "interrupted")
+        session.finish()
+        #expect(LastRun.read(from: lastRun)?.status == "interrupted")
     }
 }

@@ -57,8 +57,13 @@ jobs:
           echo "Building BootstrapMate $VERSION"
 
       - name: Build Swift binaries (release, universal)
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
         run: |
           set -euo pipefail
+          # Stamp the release version in as BuildInfo's fallback.
+          sed -i '' "s/value = \".*\"/value = \"$VERSION\"/" Sources/core/Utilities/BuildVersion.swift
+          grep -q "value = \"$VERSION\"" Sources/core/Utilities/BuildVersion.swift
           swift package resolve
           swift build -c release --arch arm64 --arch x86_64
 

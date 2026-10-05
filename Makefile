@@ -121,7 +121,12 @@ build: check-signing-config swift-build copy-binary create-app-bundle create-lau
 
 swift-build:
 	@echo "$(BLUE)Building Swift binary (universal)...$(NC)"
-	swift build -c release --arch arm64 --arch x86_64
+	# Stamp the version into the build as the fallback for BuildInfo, then put
+	# the file back so the working tree stays clean.
+	@cp Sources/core/Utilities/BuildVersion.swift $(BUILD_DIR)/BuildVersion.swift.orig 2>/dev/null || (mkdir -p $(BUILD_DIR) && cp Sources/core/Utilities/BuildVersion.swift $(BUILD_DIR)/BuildVersion.swift.orig)
+	@sed -i '' 's/value = ".*"/value = "$(VERSION)"/' Sources/core/Utilities/BuildVersion.swift
+	swift build -c release --arch arm64 --arch x86_64; status=$$?; \
+		cp $(BUILD_DIR)/BuildVersion.swift.orig Sources/core/Utilities/BuildVersion.swift; exit $$status
 	@echo "$(GREEN)✓ Swift build complete$(NC)"
 
 copy-binary: swift-build

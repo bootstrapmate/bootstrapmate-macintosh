@@ -89,6 +89,40 @@ public struct LastRunRecord: Codable, Equatable, Sendable {
 }
 
 public enum LastRun {
+    /// The status given to a run that never recorded an end: it was killed,
+    /// crashed, or the Mac shut down under it.
+    public static let interruptedStatus = "interrupted"
+
+    /// Marks a run that was left as `running` as `interrupted`, in
+    /// last-run.json and in its own session.json, and returns its record.
+    /// Call it only while holding the run lock, before the new run starts
+    /// its session, so a live run is never mislabelled. Returns nil when the
+    /// last run ended normally or there is no record.
+    @discardableResult
+    public static func recoverInterrupted(lastRunPath: String, logsDirectory: String) -> LastRunRecord? {
+        guard var record = read(from: lastRunPath), record.status == "running" else { return nil }
+        record.status = interruptedStatus
+        write(record, to: lastRunPath)
+
+        // session_id is "<YYYY-MM-DD>-<HHMMSS[_n]>", naming logs/<day>/<time>/.
+        let id = record.sessionId
+        if id.count > 11 {
+            let day = String(id.prefix(10))
+            let time = String(id.dropFirst(11))
+            let sessionFile = ((logsDirectory as NSString).appendingPathComponent(day) as NSString)
+                .appendingPathComponent(time + "/session.json")
+            if let data = FileManager.default.contents(atPath: sessionFile),
+               var json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               json["status"] as? String == "running" {
+                json["status"] = interruptedStatus
+                if let out = try? JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys]) {
+                    try? out.write(to: URL(fileURLWithPath: sessionFile), options: .atomic)
+                }
+            }
+        }
+        return record
+    }
+
     /// The longest line `summaryLine` returns. MDM custom attributes and
     /// script results are short fields; this keeps the line whole in them.
     public static let maxLineLength = 1000

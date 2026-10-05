@@ -27,12 +27,7 @@ public enum BootstrapMateConstants {
     /// The most recent run's summary, beside the logs directory.
     public static let lastRunPath = "/Library/Managed Bootstrap/last-run.json"
     
-    // Version in YYYY.MM.DD.HHMM format - generated at compile time
-    public static let version: String = {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy.MM.dd.HHmm"
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = TimeZone.current
-        return formatter.string(from: Date())
-    }()
+    /// The running build's version (YYYY.MM.DD.HHMM), from the app bundle's
+    /// Info.plist, else the value stamped in at build time. Never the clock.
+    public static let version: String = BuildInfo.version()
 }
