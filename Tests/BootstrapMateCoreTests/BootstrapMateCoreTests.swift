@@ -1413,3 +1413,75 @@ struct RunBoundsTests {
         }
     }
 }
+
+// MARK: - Throttle after preflight Tests
+
+/// Runs the orchestrator for real (no dry run) with a preflight that picks the
+/// mode, and a young completed baseline on record. launchd is never touched.
+/// An extension of the dry-run suite so the two never run at once: both drive
+/// the shared orchestrator and the dry-run switch.
+extension DryRunTests {
+
+    private func throttleItem(_ name: String, _ contents: String, dir: String) throws -> String {
+        let source = dir + "/src-" + name
+        let data = Data(contents.utf8)
+        try data.write(to: URL(fileURLWithPath: source))
+        return """
+        {"file": "\(dir)/\(name)", "hash": "\(sha256(data))", "url": "file://\(source)", "type": "rootscript", "name": "\(name)"}
+        """
+    }
+
+    /// Returns whether the setupassistant script ran and whether it was downloaded.
+    private func runWithYoungBaseline(preflightExit: Int) throws -> (ran: Bool, downloaded: Bool) {
+        let dir = NSTemporaryDirectory() + "bootstrapmate-throttle-" + UUID().uuidString
+        try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        let orchestrator = IAOrchestrator.shared
+        let saved = (orchestrator.config, orchestrator.ledger, orchestrator.baselineStatePath, orchestrator.finishRun)
+        defer {
+            try? FileManager.default.removeItem(atPath: dir)
+            orchestrator.config = saved.0
+            orchestrator.ledger = saved.1
+            orchestrator.baselineStatePath = saved.2
+            orchestrator.finishRun = saved.3
+        }
+
+        let statePath = dir + "/baseline.json"
+        BaselineThrottle.save(
+            BaselineState(endTime: Date().addingTimeInterval(-3600), status: "completed", consecutiveFailures: 0),
+            to: statePath
+        )
+
+        let marker = dir + "/setup-ran"
+        let preflight = try throttleItem("preflight.sh", "#!/bin/sh\nexit \(preflightExit)\n", dir: dir)
+        let setup = try throttleItem("setup.sh", "#!/bin/sh\ntouch '\(marker)'\nexit 0\n", dir: dir)
+        let manifest = dir + "/manifest.json"
+        try Data("""
+        {"preflight": [\(preflight)], "setupassistant": [\(setup)]}
+        """.utf8).write(to: URL(fileURLWithPath: manifest))
+        #expect(ManifestManager.shared.loadManifest(from: "file://\(manifest)", followRedirects: false, authHeader: nil, skipValidation: false))
+
+        ManifestManager.shared.setDryRun(false)
+        var config = IAOrchestrator.OrchestratorConfig()
+        config.enableDialog = false
+        orchestrator.config = config
+        orchestrator.ledger = InstallLedger(path: dir + "/installed.json")
+        orchestrator.baselineStatePath = statePath
+        orchestrator.finishRun = {}
+
+        #expect(orchestrator.runAllStages(reboot: false))
+        return (FileManager.default.fileExists(atPath: marker), FileManager.default.fileExists(atPath: dir + "/setup.sh"))
+    }
+
+    @Test("A young baseline does not hold back a run the preflight sends to provisioning")
+    func provisionRunsDespiteYoungBaseline() throws {
+        let result = try runWithYoungBaseline(preflightExit: 1)
+        #expect(result.ran)
+    }
+
+    @Test("A baseline chosen by the preflight is throttled: nothing is downloaded or run")
+    func baselineIsThrottled() throws {
+        let result = try runWithYoungBaseline(preflightExit: Int(PreflightDecision.baselineExitCode))
+        #expect(result.ran == false)
+        #expect(result.downloaded == false)
+    }
+}

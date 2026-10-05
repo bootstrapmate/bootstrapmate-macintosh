@@ -49,6 +49,10 @@ public final class IAOrchestrator {
     /// Where the last baseline's outcome is kept for the throttle.
     public var baselineStatePath = BaselineThrottle.defaultPath
 
+    /// Removes the one-shot LaunchDaemon when a run ends. Replaceable so a
+    /// test can run the orchestrator without touching launchd.
+    public var finishRun: () -> Void = registerCleanupTasks
+
     /// Set once the preflight has chosen baseline mode for this run.
     private var baselineRun = false
 
@@ -79,7 +83,7 @@ public final class IAOrchestrator {
         guard let manifest = ManifestManager.shared.getManifest() else {
             Logger.error("No manifest loaded.")
             Logger.writeSessionSummary(status: "failed")
-            if !DryRun.isEnabled { registerCleanupTasks() }
+            if !DryRun.isEnabled { finishRun() }
             return false
         }
         
@@ -104,6 +108,25 @@ public final class IAOrchestrator {
                 cleanupAndExit(success: true)
                 return true
             } else if preflightResult == .baseline {
+                // The throttle applies only once the preflight has chosen
+                // baseline: a Mac put back on a provisioning manifest still
+                // provisions, however recent its last baseline. A throttled run
+                // downloads and installs nothing.
+                let cfg = ConfigManager.shared.config
+                let decision = BaselineThrottle.decide(
+                    state: BaselineThrottle.load(from: baselineStatePath),
+                    minIntervalHours: cfg.baselineMinIntervalHours,
+                    forceFilePresent: FileManager.default.fileExists(atPath: cfg.forceRunFile)
+                )
+                if case .skip(let reason) = decision {
+                    Logger.info("Baseline throttle: skipping this baseline: \(reason)")
+                    Logger.setRunType("skip")
+                    cleanupAndExit(success: true)
+                    return true
+                }
+                if case .run(let reason) = decision {
+                    Logger.info("Baseline throttle: baseline allowed: \(reason)")
+                }
                 baseline = true
                 baselineRun = true
                 Logger.setRunType("baseline")
@@ -229,7 +252,7 @@ public final class IAOrchestrator {
         // process, and a summary written afterwards never reaches the log.
         // A failed preflight means the run did nothing it was asked to.
         Logger.writeSessionSummary(status: preflightFailed ? "failed" : nil)
-        registerCleanupTasks()
+        finishRun()
         return success
     }
     
@@ -634,7 +657,7 @@ public final class IAOrchestrator {
     
     private func cleanupAndExit(success: Bool) {
         Logger.writeSessionSummary()
-        registerCleanupTasks()
+        finishRun()
     }
 }
 
