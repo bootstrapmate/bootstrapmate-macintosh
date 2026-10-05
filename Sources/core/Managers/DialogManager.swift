@@ -202,30 +202,29 @@ public final class DialogManager {
     
     private func writeCommand(_ command: String) {
         guard isAvailable && isRunning else { return }
-        
-        let commandWithNewline = command + "\n"
-        
-        do {
-            let fileURL = URL(fileURLWithPath: commandFilePath)
-            
-            if FileManager.default.fileExists(atPath: commandFilePath) {
-                let fileHandle = try FileHandle(forWritingTo: fileURL)
-                fileHandle.seekToEndOfFile()
-                if let data = commandWithNewline.data(using: .utf8) {
-                    fileHandle.write(data)
-                }
-                fileHandle.closeFile()
-            } else {
-                try commandWithNewline.write(toFile: commandFilePath, atomically: true, encoding: .utf8)
-            }
-        } catch {
-            Logger.debug("Failed to write dialog command: \(error.localizedDescription)")
+        // The command file sits in a directory every account can write, so it
+        // is opened without following a link, and only a file this process
+        // owns is written to.
+        let fd = Darwin.open(commandFilePath, O_WRONLY | O_APPEND | O_CREAT | O_NOFOLLOW | O_CLOEXEC, 0o644)
+        guard fd >= 0 else {
+            Logger.debug("Failed to open dialog command file \(commandFilePath): errno \(errno)")
+            return
         }
+        defer { Darwin.close(fd) }
+        var info = stat()
+        guard fstat(fd, &info) == 0, info.st_uid == geteuid(), info.st_mode & S_IFMT == S_IFREG else {
+            Logger.warning("Not writing to dialog command file \(commandFilePath): it is not a file this process owns")
+            return
+        }
+        let data = Array((command + "\n").utf8)
+        _ = data.withUnsafeBytes { Darwin.write(fd, $0.baseAddress, $0.count) }
     }
-    
+
+    /// Replaces whatever is at the command file, a link included, with a new
+    /// empty file this process owns.
     private func clearCommandFile() {
         do {
-            try "".write(toFile: commandFilePath, atomically: true, encoding: .utf8)
+            try FileTrust.writeNewFile(Data(), to: commandFilePath)
         } catch {
             Logger.debug("Failed to clear command file: \(error.localizedDescription)")
         }

@@ -143,10 +143,18 @@ Every item in `preflight`, `setupassistant` and `userland` takes the same fields
 A baseline run may download payloads, so it must not repeat sooner than intended. BootstrapMate records the outcome of each baseline run in `/Library/Managed Bootstrap/baseline.json`. The throttle applies only after the preflight has chosen baseline mode. The manifest and the preflight script are still fetched, which is small, but a throttled baseline downloads and installs no items. A Mac whose preflight chooses provisioning, for example one put back on a provisioning manifest, always provisions, however recent its last baseline:
 
 - After a completed baseline, the next run waits `baselineMinIntervalHours` (default 144, six days, so a weekly schedule still runs every time).
-- After a baseline that ended `partial_failure` or `failed`, one retry is allowed after 24 hours. If that retry does not complete either, the full interval applies again.
+- A new BootstrapMate always runs its baseline. The record keeps the version that last completed a baseline, and a running version that differs from it is exempt from `baselineMinIntervalHours`. A record written by a build that kept no version counts as a different version.
+- A baseline that was interrupted, stopped by SIGTERM or left `running` by a restart or crash, is retried by the next run however recent it was, until one ends.
+- After a baseline that ended `partial_failure` or `failed`, the next run waits 24 hours, whatever the version. One retry is allowed then; if it does not complete either, the full interval applies again, unless the version has changed.
 - A throttled baseline ends as `skip`, logs why, and removes its LaunchDaemon like any other finished run.
 
-There is no baseline record on a Mac being provisioned, and a provisioning run clears it. A baseline also goes ahead while the file named by `forceRunFile` exists. Dry runs and `--userscript` never run the preflight, so they are never throttled. The throttle only checks for the force file; the preflight is what consumes it.
+BootstrapMate never relaunches itself to retry. A retry happens only when something already starts a run: the LaunchDaemon loading when the package is installed, or your MDM's own schedule.
+
+There is no baseline record on a Mac being provisioned, and a provisioning run clears it. A baseline also goes ahead while the file named by `forceRunFile` exists, provided it is owned by root in a directory only root can write; any other force file is ignored and logged. Dry runs and `--userscript` never run the preflight, so they are never throttled. The throttle only checks for the force file; the preflight is what consumes it.
+
+### Files root acts on
+
+BootstrapMate runs as root, so it acts only on files no other account could have written. `/Library/Managed Bootstrap` and everything in it (the cache, logs, `installed.json`, `last-run.json`, `baseline.json`) are root:wheel and writable by root alone: the package postinstall sets this on install, and every run checks and repairs the directories before it starts. A state file or cached payload that is not root-owned, or that another account can write, is not used: state is ignored, which can only make a run do more, and a cached payload is discarded and downloaded again. A payload is never written into a directory another account can write.
 
 Packages are not downloaded when nothing has changed. A package whose receipt shows the manifest's version is skipped before any download. In a baseline run, so is a package file whose hash is already in the install ledger, unless its receipt now shows an older version. Downloaded files stay in the cache while `retainCache` is true, so an unchanged script is not downloaded again either.
 
@@ -175,7 +183,7 @@ BootstrapMate reads these keys from the `com.github.bootstrapmate` domain, norma
 | `blurScreen` | bool | `false` | Blur the screen behind the window. |
 | `retainCache` | bool | `true` | Keep downloaded payloads in `/Library/Managed Bootstrap/cache` after a successful run, so a later run does not download them again. `false` empties the cache when a run succeeds. |
 | `baselineMinIntervalHours` | integer | `144` | Minimum hours between baseline runs; see Baseline throttle. `0` turns the throttle off. |
-| `forceRunFile` | string | `/Library/Managed Bootstrap/.bootstrapmate-force-run` | A file whose presence exempts the next run from the baseline throttle. Point it at the file your preflight checks for a forced run. |
+| `forceRunFile` | string | `/Library/Managed Bootstrap/.bootstrapmate-force-run` | A file whose presence exempts the next run from the baseline throttle. Point it at the file your preflight checks for a forced run. It counts only when owned by root, in a directory only root can write. |
 | `userlandLoginTimeout` | integer | `3600` | Seconds to wait for a user to log in before skipping the userland stage. `0` waits forever. |
 | `reboot`, `dryRun`, `silentMode`, `verboseMode`, `followRedirects` | bool | | As the matching CLI flags. |
 

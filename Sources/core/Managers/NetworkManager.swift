@@ -147,8 +147,10 @@ public final class NetworkManager {
                     try FileManager.default.createDirectory(atPath: parentDir, withIntermediateDirectories: true, attributes: nil)
                 }
                 
-                // Write directly to destination (no atomic - avoids temp file on read-only filesystem)
-                try data.write(to: URL(fileURLWithPath: path))
+                // Written directly (no atomic temp file, which fails on the
+                // read-only filesystem during Setup Assistant), as a new file
+                // so the write never follows a link left at the path.
+                try FileTrust.writeNewFile(data, to: path)
                 completion(.success(()))
             } catch {
                 completion(.failure(error))

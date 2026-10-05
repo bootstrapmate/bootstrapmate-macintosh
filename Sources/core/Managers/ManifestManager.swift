@@ -108,11 +108,23 @@ public final class ManifestManager {
             return true
         }
 
-        if FileManager.default.fileExists(atPath: path),
-           let localHash = computeSHA256(of: path),
-           localHash == expectedHash {
-            Logger.log("Already have valid file: \(path). Skipping re-download.")
-            return true
+        // Root installs or runs this file, so a cached copy is used only when
+        // no account but root could have written it or its directory.
+        if FileManager.default.fileExists(atPath: path) || isLink(path) {
+            if !FileTrust.isTrustedFile(path) {
+                Logger.warning("Discarding cached \(path): it is not a root-owned file that only root can write")
+                try? FileManager.default.removeItem(atPath: path)
+            } else if let localHash = computeSHA256(of: path), localHash == expectedHash {
+                Logger.log("Already have valid file: \(path). Skipping re-download.")
+                return true
+            }
+        }
+
+        let parent = (path as NSString).deletingLastPathComponent
+        try? FileManager.default.createDirectory(atPath: parent, withIntermediateDirectories: true)
+        guard FileTrust.isTrustedDirectory(parent) else {
+            Logger.error("Refusing to download \(path): \(parent) is not a root-owned directory that only root can write")
+            return false
         }
 
         let attempts = BootstrapMateConstants.downloadAttempts(requested: item.retries?.value)
@@ -122,7 +134,7 @@ public final class ManifestManager {
         while triesLeft > 0 {
             triesLeft -= 1
             let ok = blockingDownload(item: item)
-            if ok, let localHash = computeSHA256(of: path), localHash == expectedHash {
+            if ok, FileTrust.isTrustedFile(path), let localHash = computeSHA256(of: path), localHash == expectedHash {
                 Logger.log("Hash validated for \(path)")
                 return true
             }
@@ -157,6 +169,10 @@ public final class ManifestManager {
 
         _ = semaphore.wait(timeout: .now() + 120)
         return resultHolder.success
+    }
+
+    private func isLink(_ path: String) -> Bool {
+        (try? FileManager.default.destinationOfSymbolicLink(atPath: path)) != nil
     }
 
     private func computeSHA256(of filePath: String) -> String? {

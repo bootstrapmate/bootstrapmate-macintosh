@@ -100,13 +100,14 @@ public enum LastRun {
     /// last run ended normally or there is no record.
     @discardableResult
     public static func recoverInterrupted(lastRunPath: String, logsDirectory: String) -> LastRunRecord? {
-        guard var record = read(from: lastRunPath), record.status == "running" else { return nil }
+        guard FileTrust.isTrustedFile(lastRunPath),
+              var record = read(from: lastRunPath), record.status == "running" else { return nil }
         record.status = interruptedStatus
         write(record, to: lastRunPath)
 
         // session_id is "<YYYY-MM-DD>-<HHMMSS[_n]>", naming logs/<day>/<time>/.
         let id = record.sessionId
-        if id.count > 11 {
+        if id.range(of: #"^\d{4}-\d{2}-\d{2}-\d{6}(_\d+)?$"#, options: .regularExpression) != nil {
             let day = String(id.prefix(10))
             let time = String(id.dropFirst(11))
             let sessionFile = ((logsDirectory as NSString).appendingPathComponent(day) as NSString)

@@ -1273,6 +1273,10 @@ struct AppRenameUpgradeTests {
         )
         try write("{}", to: root + "/Library/Managed Bootstrap/installed.json")
         try write("{\"status\":\"completed\"}", to: root + "/Library/Managed Bootstrap/last-run.json")
+        // An earlier build, or anything else, left the tree writable by others.
+        for path in ["/Library/Managed Bootstrap", "/Library/Managed Bootstrap/installed.json"] {
+            try fm.setAttributes([.posixPermissions: 0o777], ofItemAtPath: root + path)
+        }
         try fm.createDirectory(atPath: root + "/tmp", withIntermediateDirectories: true)
 
         // The new payload, as the installer lays it down before postinstall.
@@ -1315,6 +1319,12 @@ struct AppRenameUpgradeTests {
         #expect(programArgument(root + "/Library/LaunchDaemons/com.github.bootstrapmate.plist") == BootstrapMateConstants.executablePath)
         #expect(programArgument(root + "/Library/LaunchDaemons/com.github.bootstrapmate.helper.plist")
                 == newApp + "/Contents/MacOS/BootstrapMateHelper")
+
+        // The managed tree is writable by its owner alone.
+        for path in ["", "/logs", "/cache", "/installed.json", "/last-run.json"] {
+            let mode = (try fm.attributesOfItem(atPath: root + "/Library/Managed Bootstrap" + path)[.posixPermissions] as? Int) ?? 0o777
+            #expect(mode & 0o022 == 0, "\(path) is writable by group or others")
+        }
 
         // State under /Library/Managed Bootstrap survives.
         #expect(fm.contents(atPath: root + "/Library/Managed Bootstrap/installed.json") == Data("{}".utf8))
@@ -1406,6 +1416,106 @@ struct BaselineThrottleTests {
         #expect(BaselineThrottle.load(from: path) == nil)
     }
 
+    private func versioned(_ status: String, hoursAgo: Double, failures: Int = 0, completed: String?) -> BaselineState {
+        BaselineState(
+            endTime: now.addingTimeInterval(-hoursAgo * 3600), status: status, consecutiveFailures: failures,
+            toolVersion: completed, completedVersion: completed
+        )
+    }
+
+    @Test("A new BootstrapMate version runs its baseline however recent the last one")
+    func versionChangeRuns() {
+        let young = versioned("completed", hoursAgo: 1, completed: "2026.10.01.1000")
+        #expect(!skips(BaselineThrottle.decide(state: young, now: now, currentVersion: "2026.10.05.0926")))
+        // A record from a build that kept no version counts as a different one.
+        #expect(!skips(BaselineThrottle.decide(state: state("completed", hoursAgo: 1), now: now, currentVersion: "2026.10.05.0926")))
+    }
+
+    @Test("The same version with a young completed baseline still skips")
+    func sameVersionYoungSkips() {
+        let young = versioned("completed", hoursAgo: 1, completed: "2026.10.05.0926")
+        #expect(skips(BaselineThrottle.decide(state: young, now: now, currentVersion: "2026.10.05.0926")))
+        let old = versioned("completed", hoursAgo: 144, completed: "2026.10.05.0926")
+        #expect(!skips(BaselineThrottle.decide(state: old, now: now, currentVersion: "2026.10.05.0926")))
+    }
+
+    @Test("An interrupted or still-running baseline is retried at once, however recent")
+    func interruptedRunsImmediately() {
+        for status in ["interrupted", "running"] {
+            let s = versioned(status, hoursAgo: 0.1, failures: 3, completed: "2026.10.05.0926")
+            #expect(!skips(BaselineThrottle.decide(state: s, now: now, currentVersion: "2026.10.05.0926")))
+        }
+    }
+
+    @Test("A failed baseline waits 24 hours, even on a new version")
+    func failedWaitsADayEvenOnNewVersion() {
+        for status in ["failed", "partial_failure"] {
+            let s = versioned(status, hoursAgo: 2, failures: 1, completed: "2026.10.01.1000")
+            #expect(skips(BaselineThrottle.decide(state: s, now: now, currentVersion: "2026.10.05.0926")))
+            let day = versioned(status, hoursAgo: 24, failures: 1, completed: "2026.10.01.1000")
+            #expect(!skips(BaselineThrottle.decide(state: day, now: now, currentVersion: "2026.10.05.0926")))
+        }
+    }
+
+    @Test("A new version lifts the full interval after repeated failures, but not the 24 hours")
+    func versionLiftsIntervalAfterRetry() {
+        let used = versioned("partial_failure", hoursAgo: 30, failures: 2, completed: "2026.10.01.1000")
+        #expect(skips(BaselineThrottle.decide(state: used, now: now, currentVersion: "2026.10.01.1000")))
+        #expect(!skips(BaselineThrottle.decide(state: used, now: now, currentVersion: "2026.10.05.0926")))
+        let recent = versioned("partial_failure", hoursAgo: 10, failures: 2, completed: "2026.10.01.1000")
+        #expect(skips(BaselineThrottle.decide(state: recent, now: now, currentVersion: "2026.10.05.0926")))
+    }
+
+    @Test("The state records the running version and the last completed one")
+    func versionsRecorded() {
+        let done = BaselineThrottle.next(after: nil, status: "completed", endTime: now, version: "A")
+        #expect(done.completedVersion == "A" && done.toolVersion == "A")
+        let running = BaselineThrottle.started(after: done, version: "B", startTime: now)
+        #expect(running.status == "running" && running.toolVersion == "B" && running.completedVersion == "A")
+        let failed = BaselineThrottle.next(after: running, status: "partial_failure", endTime: now, version: "B")
+        #expect(failed.completedVersion == "A" && failed.consecutiveFailures == 1)
+        let rerun = BaselineThrottle.started(after: failed, version: "B", startTime: now)
+        #expect(rerun.consecutiveFailures == 1)
+        let fixed = BaselineThrottle.next(after: rerun, status: "completed", endTime: now, version: "B")
+        #expect(fixed.completedVersion == "B" && fixed.consecutiveFailures == 0)
+    }
+
+    @Test("A record left running is marked interrupted; a finished one is left alone")
+    func markInterrupted() throws {
+        let dir = NSTemporaryDirectory() + "baseline-\(UUID().uuidString)"
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+        let path = dir + "/baseline.json"
+        BaselineThrottle.save(BaselineThrottle.started(after: nil, version: "A", startTime: now), to: path)
+        BaselineThrottle.markInterrupted(at: path)
+        #expect(BaselineThrottle.load(from: path)?.status == "interrupted")
+        BaselineThrottle.save(BaselineThrottle.next(after: nil, status: "completed", endTime: now, version: "A"), to: path)
+        BaselineThrottle.markInterrupted(at: path)
+        #expect(BaselineThrottle.load(from: path)?.status == "completed")
+    }
+
+    @Test("A record from a build that kept no versions still loads")
+    func legacyRecordLoads() throws {
+        let dir = NSTemporaryDirectory() + "baseline-\(UUID().uuidString)"
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+        try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        let path = dir + "/baseline.json"
+        try Data(#"{"consecutive_failures":0,"end_time":"2026-10-04T20:00:00Z","status":"completed"}"#.utf8)
+            .write(to: URL(fileURLWithPath: path))
+        let loaded = try #require(BaselineThrottle.load(from: path))
+        #expect(loaded.status == "completed" && loaded.completedVersion == nil)
+    }
+
+    @Test("A baseline record that another account could have written is ignored")
+    func untrustedRecordIgnored() throws {
+        let dir = NSTemporaryDirectory() + "baseline-\(UUID().uuidString)"
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+        let path = dir + "/baseline.json"
+        BaselineThrottle.save(state("completed", hoursAgo: 1), to: path)
+        #expect(BaselineThrottle.load(from: path) != nil)
+        try FileManager.default.setAttributes([.posixPermissions: 0o666], ofItemAtPath: path)
+        #expect(BaselineThrottle.load(from: path) == nil)
+    }
+
     @Test("The default interval is 144 hours")
     func defaults() {
         #expect(BootstrapMateConfig().baselineMinIntervalHours == 144)
@@ -1456,8 +1566,14 @@ extension DryRunTests {
         """
     }
 
-    /// Returns whether the setupassistant script ran and whether it was downloaded.
-    private func runWithYoungBaseline(preflightExit: Int) throws -> (ran: Bool, downloaded: Bool) {
+    /// Returns whether the setupassistant script ran and whether it was
+    /// downloaded, and the baseline state the run left. The recorded baseline
+    /// ended an hour ago with `status`, on `completedVersion`.
+    private func runWithYoungBaseline(
+        preflightExit: Int,
+        status: String = "completed",
+        completedVersion: String? = BootstrapMateConstants.version
+    ) throws -> (ran: Bool, downloaded: Bool, state: BaselineState?) {
         let dir = NSTemporaryDirectory() + "bootstrapmate-throttle-" + UUID().uuidString
         try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
         let orchestrator = IAOrchestrator.shared
@@ -1472,7 +1588,10 @@ extension DryRunTests {
 
         let statePath = dir + "/baseline.json"
         BaselineThrottle.save(
-            BaselineState(endTime: Date().addingTimeInterval(-3600), status: "completed", consecutiveFailures: 0),
+            BaselineState(
+                endTime: Date().addingTimeInterval(-3600), status: status, consecutiveFailures: 0,
+                toolVersion: completedVersion, completedVersion: completedVersion
+            ),
             to: statePath
         )
 
@@ -1494,7 +1613,11 @@ extension DryRunTests {
         orchestrator.finishRun = {}
 
         #expect(orchestrator.runAllStages(reboot: false))
-        return (FileManager.default.fileExists(atPath: marker), FileManager.default.fileExists(atPath: dir + "/setup.sh"))
+        return (
+            FileManager.default.fileExists(atPath: marker),
+            FileManager.default.fileExists(atPath: dir + "/setup.sh"),
+            BaselineThrottle.load(from: statePath)
+        )
     }
 
     @Test("A young baseline does not hold back a run the preflight sends to provisioning")
@@ -1508,6 +1631,58 @@ extension DryRunTests {
         let result = try runWithYoungBaseline(preflightExit: Int(PreflightDecision.baselineExitCode))
         #expect(result.ran == false)
         #expect(result.downloaded == false)
+    }
+
+    @Test("A new BootstrapMate version runs its baseline and records itself as completed")
+    func newVersionRunsBaseline() throws {
+        let result = try runWithYoungBaseline(
+            preflightExit: Int(PreflightDecision.baselineExitCode),
+            completedVersion: "2000.01.01.0000"
+        )
+        #expect(result.ran)
+        #expect(result.state?.status == "completed")
+        #expect(result.state?.completedVersion == BootstrapMateConstants.version)
+    }
+
+    @Test("An interrupted baseline is retried on the next run, however recent")
+    func interruptedBaselineRetries() throws {
+        let result = try runWithYoungBaseline(
+            preflightExit: Int(PreflightDecision.baselineExitCode),
+            status: "interrupted"
+        )
+        #expect(result.ran)
+        #expect(result.state?.status == "completed")
+    }
+
+    @Test("A cached file another account could have written is discarded and fetched again")
+    func untrustedCacheRefetched() throws {
+        let dir = NSTemporaryDirectory() + "bootstrapmate-cache-" + UUID().uuidString
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+        try FileManager.default.createDirectory(atPath: dir + "/cache", withIntermediateDirectories: true)
+        let good = Data("#!/bin/sh\nexit 0\n".utf8)
+        try good.write(to: URL(fileURLWithPath: dir + "/source.sh"))
+        let item = try JSONDecoder().decode(ManifestItem.self, from: Data("""
+        {"file": "\(dir)/cache/item.sh", "hash": "\(sha256(good))", "url": "file://\(dir)/source.sh", "type": "rootscript"}
+        """.utf8))
+
+        // Right bytes, but writable by others: replaced with a fresh copy.
+        try good.write(to: URL(fileURLWithPath: item.file))
+        try FileManager.default.setAttributes([.posixPermissions: 0o666], ofItemAtPath: item.file)
+        #expect(ManifestManager.shared.downloadIfNeeded(item))
+        #expect(FileTrust.isTrustedFile(item.file))
+
+        // A link at the path is replaced, and what it pointed at is untouched.
+        let elsewhere = dir + "/elsewhere"
+        try Data("keep".utf8).write(to: URL(fileURLWithPath: elsewhere))
+        try FileManager.default.removeItem(atPath: item.file)
+        try FileManager.default.createSymbolicLink(atPath: item.file, withDestinationPath: elsewhere)
+        #expect(ManifestManager.shared.downloadIfNeeded(item))
+        #expect((try? FileManager.default.destinationOfSymbolicLink(atPath: item.file)) == nil)
+        #expect(FileManager.default.contents(atPath: elsewhere) == Data("keep".utf8))
+
+        // A cache directory others can write is refused outright.
+        try FileManager.default.setAttributes([.posixPermissions: 0o777], ofItemAtPath: dir + "/cache")
+        #expect(ManifestManager.shared.downloadIfNeeded(item) == false)
     }
 }
 
@@ -1636,5 +1811,101 @@ struct InterruptedRunTests {
         #expect(LastRun.read(from: lastRun)?.status == "interrupted")
         session.finish()
         #expect(LastRun.read(from: lastRun)?.status == "interrupted")
+    }
+}
+
+// MARK: - File trust Tests
+
+@Suite("File trust Tests")
+struct FileTrustTests {
+
+    private func scratch() throws -> String {
+        let dir = NSTemporaryDirectory() + "bootstrapmate-trust-" + UUID().uuidString
+        try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o755])
+        return dir
+    }
+
+    @Test("Only an owned file, writable by no one else, in a directory the same, is trusted")
+    func trustedFile() throws {
+        let dir = try scratch()
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+        let file = dir + "/state.json"
+        try Data("{}".utf8).write(to: URL(fileURLWithPath: file))
+        try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: file)
+        #expect(FileTrust.isTrustedFile(file))
+
+        try FileManager.default.setAttributes([.posixPermissions: 0o664], ofItemAtPath: file)
+        #expect(!FileTrust.isTrustedFile(file))
+        try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: file)
+
+        let link = dir + "/link.json"
+        try FileManager.default.createSymbolicLink(atPath: link, withDestinationPath: file)
+        #expect(!FileTrust.isTrustedFile(link))
+
+        try FileManager.default.setAttributes([.posixPermissions: 0o777], ofItemAtPath: dir)
+        #expect(!FileTrust.isTrustedFile(file))
+        #expect(!FileTrust.isTrustedDirectory(dir))
+    }
+
+    @Test("A force file counts only in a directory no other account can write")
+    func forceMarker() throws {
+        let dir = try scratch()
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+        let marker = dir + "/.force"
+        FileManager.default.createFile(atPath: marker, contents: nil)
+        #expect(FileTrust.isTrustedMarker(marker))
+        try FileManager.default.setAttributes([.posixPermissions: 0o1777], ofItemAtPath: dir)
+        #expect(!FileTrust.isTrustedMarker(marker))
+        #expect(!FileTrust.isTrustedMarker(dir + "/missing"))
+    }
+
+    @Test("Securing a directory removes write access for everyone but the owner")
+    func secureDirectory() throws {
+        let dir = try scratch()
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+        let sub = dir + "/cache"
+        #expect(FileTrust.secureDirectory(sub))
+        try FileManager.default.setAttributes([.posixPermissions: 0o777], ofItemAtPath: sub)
+        // Only root can repair; any other account just reports it.
+        #expect(FileTrust.secureDirectory(sub) == (geteuid() == 0))
+        let link = dir + "/link"
+        try FileManager.default.createSymbolicLink(atPath: link, withDestinationPath: sub)
+        #expect(!FileTrust.secureDirectory(link))
+    }
+
+    @Test("A ledger another account could have written is ignored")
+    func untrustedLedger() throws {
+        let dir = try scratch()
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+        let ledger = InstallLedger(path: dir + "/installed.json")
+        ledger.record(hash: "abc", name: "item")
+        #expect(ledger.contains(hash: "abc"))
+        try FileManager.default.setAttributes([.posixPermissions: 0o666], ofItemAtPath: ledger.path)
+        #expect(!ledger.contains(hash: "abc"))
+    }
+
+    @Test("The run lock never follows a link")
+    func lockRefusesLink() throws {
+        let dir = try scratch()
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+        let target = dir + "/target"
+        try FileManager.default.createSymbolicLink(atPath: dir + "/.run.lock", withDestinationPath: target)
+        #expect(RunLock.acquire(at: dir + "/.run.lock") == nil)
+        #expect(!FileManager.default.fileExists(atPath: target))
+    }
+
+    @Test("A last-run record whose session id is not a session id never names a path")
+    func lastRunSessionIdChecked() throws {
+        let dir = try scratch()
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+        let outside = dir + "/session.json"
+        try Data(#"{"status":"running"}"#.utf8).write(to: URL(fileURLWithPath: outside))
+        let record = LastRunRecord(
+            sessionId: "2026-10-04-../..", runType: "baseline", status: "running", toolVersion: "t",
+            startTime: "2026-10-04T20:21:00.000Z", endTime: nil, durationSeconds: nil, errors: 0, warnings: 0, items: []
+        )
+        LastRun.write(record, to: dir + "/last-run.json")
+        #expect(LastRun.recoverInterrupted(lastRunPath: dir + "/last-run.json", logsDirectory: dir + "/logs/a/b") != nil)
+        #expect(FileManager.default.contents(atPath: outside) == Data(#"{"status":"running"}"#.utf8))
     }
 }

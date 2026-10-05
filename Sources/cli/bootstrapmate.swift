@@ -121,18 +121,16 @@ struct BootstrapMate: ParsableCommand {
             return
         }
 
-        // Ensure the real log directory exists before initializing Logger.
-        // There is no fallback log elsewhere; a failure here is reported on stderr.
+        // Ensure the real log directory exists before initializing Logger, and
+        // that the directories root reads state and payloads from are
+        // root:wheel and writable by no one else. There is no fallback log
+        // elsewhere; a failure here is reported on stderr.
         let logDir = BootstrapMateConstants.logsDirectory
-        let fileManager = FileManager.default
-        if !fileManager.fileExists(atPath: logDir) {
-            do {
-                try fileManager.createDirectory(atPath: logDir, withIntermediateDirectories: true)
-            } catch {
-                FileHandle.standardError.write(
-                    Data("bootstrapmate: failed to create log directory \(logDir): \(error.localizedDescription)\n".utf8)
-                )
-            }
+        for dir in [BootstrapMateConstants.managedDirectory, logDir, BootstrapMateConstants.cacheDirectory]
+        where !FileTrust.secureDirectory(dir) {
+            FileHandle.standardError.write(
+                Data("bootstrapmate: \(dir) is missing, not a directory, or writable by an account other than root\n".utf8)
+            )
         }
 
         // One run at a time. A second instance leaves before it touches the
@@ -150,6 +148,7 @@ struct BootstrapMate: ParsableCommand {
             lastRunPath: BootstrapMateConstants.lastRunPath,
             logsDirectory: logDir
         )
+        BaselineThrottle.markInterrupted(at: IAOrchestrator.shared.baselineStatePath)
 
         // Initialize logger
         let version = BootstrapMateConstants.version
@@ -171,6 +170,7 @@ struct BootstrapMate: ParsableCommand {
             Logger.warning("Received SIGTERM — terminating dialog and exiting")
             DialogManager.shared.terminateDialog()
             Logger.writeSessionSummary(status: LastRun.interruptedStatus)
+            BaselineThrottle.markInterrupted(at: IAOrchestrator.shared.baselineStatePath)
             Foundation.exit(1)
         }
         sigtermSource.resume()
