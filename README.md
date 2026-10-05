@@ -30,6 +30,8 @@ Examples:
 - `2026.02.08.2230` - Built February 8, 2026 at 22:30 UTC
 - Auto-generated from build timestamp unless `VERSION` is specified
 
+`--version`, `tool_version` in `session.json` and `last-run.json`, and the report all give the installed build's version, read from the app bundle's `Info.plist` (`CFBundleShortVersionString` plus `CFBundleVersion`). A binary run outside the bundle falls back to the version the Makefile or release workflow stamped in at build time, or `dev` for a plain `swift build`.
+
 Check installed version:
 ```bash
 /usr/local/bootstrapmate/managedbootstrapinstall --version
@@ -288,7 +290,7 @@ Every run also keeps a summary of itself at `/Library/Managed Bootstrap/last-run
 }
 ```
 
-`status` uses the same values as `session.json`: `running`, `completed`, `partial_failure` or `failed`. Each item's `stage` is `setupassistant` or `userland`, its `result` is `installed`, `skipped` or `failed`, and `error` is present only on failures.
+`status` uses the same values as `session.json`: `running`, `completed`, `partial_failure`, `failed` or `interrupted`. A run stopped by SIGTERM (a shutdown or restart, or a bootout) closes its session as `interrupted`. A run that could not, because it crashed or was killed outright, stays `running` until the next run starts. That run marks it `interrupted` in `last-run.json` and in its `session.json`, logs a warning, and then starts its own record. Only one run happens at a time: a second instance exits at once and leaves the live run's records alone. Reinstalling the package during a run does not stop it; the postinstall leaves a running job alone and reloads the daemon only when it is idle. Each item's `stage` is `setupassistant` or `userland`, its `result` is `installed`, `skipped` or `failed`, and `error` is present only on failures.
 
 `managedbootstrapinstall --last-run` prints the record as one line of at most 1000 characters, suited to an MDM custom attribute or a script result. The time is the end time, or the start time while a run is going, in UTC to the minute. It prints `no run recorded` when there is no file, and always exits 0.
 

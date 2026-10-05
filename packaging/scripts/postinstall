@@ -15,6 +15,20 @@ log() {
     echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" | tee -a "${POSTINSTALL_LOG}"
 }
 
+# PID of the running bootstrap job, if any. Under a test root the
+# BOOTSTRAPMATE_TEST_RUNNING_PID variable stands in for launchd.
+bootstrap_run_pid() {
+    if [[ -n "${ROOT}" ]]; then
+        echo "${BOOTSTRAPMATE_TEST_RUNNING_PID:-}"
+        return 0
+    fi
+    /bin/launchctl print system/com.github.bootstrapmate 2>/dev/null | awk '$1 == "pid" && $2 == "=" {print $3; exit}'
+}
+
+bootstrap_run_in_progress() {
+    [[ -n "$(bootstrap_run_pid)" ]]
+}
+
 # launchctl, skipped under a test root so a test never touches the real jobs.
 launchctl_run() {
     if [[ -n "${ROOT}" ]]; then
@@ -85,13 +99,21 @@ if [[ -x "${BINARY_PATH}" ]]; then
         chown root:wheel "${LAUNCHDAEMON_PATH}" 2>/dev/null || [[ -n "${ROOT}" ]]
         log "LaunchDaemon permissions set"
         
-        # Boot out any previously loaded job first: launchctl load no-ops when the
-        # label is already loaded, which on an upgrade would leave launchd pointing
-        # at the old executable path (the binary was renamed). Boot out, then load.
-        log "Loading LaunchDaemon..."
-        launchctl_run bootout system/com.github.bootstrapmate 2>/dev/null || true
-        launchctl_run load -w "${LAUNCHDAEMON_PATH}" 2>&1 | tee -a "${POSTINSTALL_LOG}" || log "launchctl load returned non-zero"
-        log "LaunchDaemon load attempted"
+        # Never boot out a run in progress: bootout sends it SIGTERM, which
+        # cuts a provisioning or baseline run off halfway. A running job keeps
+        # going on the binary it started with and removes its own daemon when it
+        # finishes; the next policy run loads the new one.
+        if bootstrap_run_in_progress; then
+            log "A BootstrapMate run is in progress (pid $(bootstrap_run_pid)); leaving it running and not reloading the LaunchDaemon"
+        else
+            # Boot out any previously loaded, idle job first: launchctl load
+            # no-ops when the label is already loaded, which on an upgrade would
+            # leave launchd pointing at the old executable path. Boot out, then load.
+            log "Loading LaunchDaemon..."
+            launchctl_run bootout system/com.github.bootstrapmate 2>/dev/null || true
+            launchctl_run load -w "${LAUNCHDAEMON_PATH}" 2>&1 | tee -a "${POSTINSTALL_LOG}" || log "launchctl load returned non-zero"
+            log "LaunchDaemon load attempted"
+        fi
     else
         log "ERROR: LaunchDaemon plist not found: ${LAUNCHDAEMON_PATH}"
     fi

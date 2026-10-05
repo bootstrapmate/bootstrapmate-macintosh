@@ -72,6 +72,9 @@ struct BootstrapMate: ParsableCommand {
     @Flag(name: .long, help: "Print the last run's summary from last-run.json as one line and exit.")
     var lastRun: Bool = false
 
+    /// Keeps the run lock alive for the life of the process.
+    nonisolated(unsafe) private static var heldLock: RunLock?
+
     /// Thread-safe wrapper for network status
     private final class NetworkStatus: @unchecked Sendable {
         var isReady = false
@@ -132,6 +135,22 @@ struct BootstrapMate: ParsableCommand {
             }
         }
 
+        // One run at a time. A second instance leaves before it touches the
+        // live run's records. The lock is held until this process exits.
+        guard let runLock = RunLock.acquire() else {
+            FileHandle.standardError.write(Data("bootstrapmate: another run is in progress; exiting\n".utf8))
+            Foundation.exit(0)
+        }
+        Self.heldLock = runLock
+
+        // A run left as "running" by a process that was killed, crashed or
+        // lost its Mac to a restart is recorded as interrupted before this
+        // run replaces last-run.json.
+        let orphan = LastRun.recoverInterrupted(
+            lastRunPath: BootstrapMateConstants.lastRunPath,
+            logsDirectory: logDir
+        )
+
         // Initialize logger
         let version = BootstrapMateConstants.version
         Logger.initialize(
@@ -146,13 +165,20 @@ struct BootstrapMate: ParsableCommand {
         signal(SIGTERM, SIG_IGN)
         let sigtermSource = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .global())
         sigtermSource.setEventHandler {
+            // Close the session as interrupted, so a shutdown or bootout
+            // mid-run never leaves last-run.json saying "running". After a
+            // normal finish the session is already closed and this is a no-op.
             Logger.warning("Received SIGTERM — terminating dialog and exiting")
             DialogManager.shared.terminateDialog()
+            Logger.writeSessionSummary(status: LastRun.interruptedStatus)
             Foundation.exit(1)
         }
         sigtermSource.resume()
         
         Logger.info("BootstrapMate v\(version) started")
+        if let orphan {
+            Logger.warning("Previous run \(orphan.sessionId) (started \(orphan.startTime), v\(orphan.toolVersion)) never finished; recorded as interrupted")
+        }
         Logger.debug("CLI arguments: \(CommandLine.arguments.joined(separator: " "))")
         
         // Wait for network connectivity before proceeding. The CLI value wins;

@@ -73,7 +73,7 @@ public final class IAOrchestrator {
         }
         
         // Initialize status tracking
-        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0.0"
+        let version = BootstrapMateConstants.version
         StatusManager.shared.initialize(
             bootstrapUrl: ConfigManager.shared.config.jsonUrl ?? "",
             version: version
