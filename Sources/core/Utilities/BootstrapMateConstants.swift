@@ -22,6 +22,9 @@ public enum BootstrapMateConstants {
     public static func retryDelay(requested: Int?) -> Int {
         min(max(requested ?? defaultRetryDelay, 0), maxRetryDelay)
     }
+    /// Where the tool keeps its state, cache and logs. Root-owned, and
+    /// writable by root alone.
+    public static let managedDirectory = "/Library/Managed Bootstrap"
     public static let cacheDirectory = "/Library/Managed Bootstrap/cache"
     public static let logsDirectory = "/Library/Managed Bootstrap/logs"
     /// The most recent run's summary, beside the logs directory.

@@ -57,11 +57,14 @@ CACHE_DIR="${MANAGED_DIR}/cache"
 
 log "Creating directories..."
 
-# Create Managed Bootstrap directories FIRST (before daemon can start)
-mkdir -p "${LOG_DIR}"
-chmod 755 "${LOG_DIR}"
-mkdir -p "${CACHE_DIR}"
-chmod 755 "${CACHE_DIR}"
+# Create Managed Bootstrap directories FIRST (before daemon can start).
+# BootstrapMate runs as root and acts on what it finds here (state, the
+# install ledger, cached payloads), so the whole tree is root:wheel and
+# writable by root alone, including anything an earlier build left behind.
+mkdir -p "${LOG_DIR}" "${CACHE_DIR}"
+chown -R root:wheel "${MANAGED_DIR}" 2>/dev/null || [[ -n "${ROOT}" ]]
+chmod -R go-w "${MANAGED_DIR}"
+chmod 755 "${MANAGED_DIR}" "${LOG_DIR}" "${CACHE_DIR}"
 
 log "Directories created: LOG_DIR=${LOG_DIR}, CACHE_DIR=${CACHE_DIR}"
 

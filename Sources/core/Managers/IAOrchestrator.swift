@@ -113,10 +113,12 @@ public final class IAOrchestrator {
                 // provisions, however recent its last baseline. A throttled run
                 // downloads and installs nothing.
                 let cfg = ConfigManager.shared.config
+                let previous = BaselineThrottle.load(from: baselineStatePath)
                 let decision = BaselineThrottle.decide(
-                    state: BaselineThrottle.load(from: baselineStatePath),
+                    state: previous,
                     minIntervalHours: cfg.baselineMinIntervalHours,
-                    forceFilePresent: FileManager.default.fileExists(atPath: cfg.forceRunFile)
+                    forceFilePresent: forceFilePresent(cfg.forceRunFile),
+                    currentVersion: version
                 )
                 if case .skip(let reason) = decision {
                     Logger.info("Baseline throttle: skipping this baseline: \(reason)")
@@ -126,6 +128,15 @@ public final class IAOrchestrator {
                 }
                 if case .run(let reason) = decision {
                     Logger.info("Baseline throttle: baseline allowed: \(reason)")
+                }
+                // Recorded before any item runs, so a run that is stopped or
+                // loses its Mac to a restart is retried on the next trigger
+                // instead of waiting out the interval.
+                if !DryRun.isEnabled {
+                    BaselineThrottle.save(
+                        BaselineThrottle.started(after: previous, version: version),
+                        to: baselineStatePath
+                    )
                 }
                 baseline = true
                 baselineRun = true
@@ -215,7 +226,8 @@ public final class IAOrchestrator {
             if baseline {
                 let state = BaselineThrottle.next(
                     after: BaselineThrottle.load(from: baselineStatePath),
-                    status: success ? "completed" : "partial_failure"
+                    status: success ? "completed" : "partial_failure",
+                    version: version
                 )
                 BaselineThrottle.save(state, to: baselineStatePath)
                 Logger.info("Baseline recorded as \(state.status) for the throttle")
@@ -256,6 +268,15 @@ public final class IAOrchestrator {
         return success
     }
     
+    /// Whether the force file is present and only root could have put it
+    /// there. One that any other account could have written is ignored.
+    private func forceFilePresent(_ path: String) -> Bool {
+        guard FileManager.default.fileExists(atPath: path) else { return false }
+        if FileTrust.isTrustedMarker(path) { return true }
+        Logger.warning("Ignoring force file \(path): it must be owned by root, in a directory only root can write")
+        return false
+    }
+
     // MARK: - Preflight Stage
     
     private enum PreflightResult {

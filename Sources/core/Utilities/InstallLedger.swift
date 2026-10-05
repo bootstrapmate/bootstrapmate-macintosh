@@ -43,7 +43,10 @@ public struct InstallLedger {
     }
 
     private func load() -> [String: [String: String]] {
-        guard let data = FileManager.default.contents(atPath: path),
+        // A ledger root could not have written alone is ignored: the worst
+        // that does is reinstall a package, never skip one.
+        guard FileTrust.isTrustedFile(path),
+              let data = FileManager.default.contents(atPath: path),
               let entries = try? JSONSerialization.jsonObject(with: data) as? [String: [String: String]] else {
             return [:]
         }
