@@ -115,8 +115,8 @@ public final class ManifestManager {
             return true
         }
 
-        let attempts = item.retries?.value ?? BootstrapMateConstants.defaultRetryCount
-        let waitSec = item.retrywait?.value ?? BootstrapMateConstants.defaultRetryDelay
+        let attempts = BootstrapMateConstants.downloadAttempts(requested: item.retries?.value)
+        let waitSec = BootstrapMateConstants.retryDelay(requested: item.retrywait?.value)
 
         var triesLeft = attempts
         while triesLeft > 0 {
@@ -126,6 +126,7 @@ public final class ManifestManager {
                 Logger.log("Hash validated for \(path)")
                 return true
             }
+            guard triesLeft > 0 else { break }
             Logger.log("Hash mismatch or download failed for \(path). Retrying in \(waitSec)s...")
             Thread.sleep(forTimeInterval: TimeInterval(waitSec))
         }

@@ -132,6 +132,18 @@ struct BootstrapMate: ParsableCommand {
             }
         }
 
+        // Baseline throttle. Decided before the logger starts, because starting
+        // it rewrites last-run.json, and before any network access. A dry run
+        // and userscript-only mode are never throttled; neither is a run with
+        // the force file present (the preflight consumes that file).
+        let prefs = ConfigManager.shared.config
+        let throttleExempt = dryRun || prefs.dryRun || userscript || prefs.userscriptOnly
+        let throttle = BaselineThrottle.decide(
+            state: BaselineThrottle.load(),
+            minIntervalHours: prefs.baselineMinIntervalHours,
+            forceFilePresent: FileManager.default.fileExists(atPath: prefs.forceRunFile)
+        )
+
         // Initialize logger
         let version = BootstrapMateConstants.version
         Logger.initialize(
@@ -154,6 +166,19 @@ struct BootstrapMate: ParsableCommand {
         
         Logger.info("BootstrapMate v\(version) started")
         Logger.debug("CLI arguments: \(CommandLine.arguments.joined(separator: " "))")
+
+        if !throttleExempt {
+            switch throttle {
+            case .skip(let reason):
+                Logger.info("Baseline throttle: skipping this run: \(reason)")
+                Logger.setRunType("skip")
+                Logger.writeSessionSummary()
+                registerCleanupTasks()
+                Foundation.exit(0)
+            case .run(let reason):
+                Logger.info("Baseline throttle: run allowed: \(reason)")
+            }
+        }
         
         // Wait for network connectivity before proceeding. The CLI value wins;
         // otherwise the networkTimeout managed preference applies.
@@ -251,6 +276,8 @@ struct BootstrapMate: ParsableCommand {
             if !manifestLoaded {
                 Logger.error("Failed to load manifest from \(url)")
                 Logger.writeSessionSummary(status: "failed")
+                // One-shot: never leave the daemon behind to run again at boot.
+                if !effectiveConfig.dryRun { registerCleanupTasks() }
                 Foundation.exit(1)
             }
         } else {
@@ -265,6 +292,7 @@ struct BootstrapMate: ParsableCommand {
             } else {
                 Logger.error("No manifest URL configured. Use --jsonurl or configure via management profile.")
                 Logger.writeSessionSummary(status: "failed")
+                if !effectiveConfig.dryRun { registerCleanupTasks() }
                 Foundation.exit(1)
             }
         }

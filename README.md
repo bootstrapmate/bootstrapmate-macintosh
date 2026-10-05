@@ -129,12 +129,26 @@ Every item in `preflight`, `setupassistant` and `userland` takes the same fields
 | `type` | yes | | `rootscript`, `package` or `userscript`. |
 | `name` | no | the file path | Label shown in logs and the dialog. |
 | `packageid`, `version` | no | | A package whose receipt shows this version or newer is skipped. |
-| `retries` | no | `3` | Download attempts before the item fails. |
-| `retrywait` | no | `5` | Seconds between download attempts. |
+| `retries` | no | `3` | Download attempts before the item fails, at most 5 in one run. |
+| `retrywait` | no | `5` | Seconds between download attempts, at most 60. |
 | `followRedirects` | no | the run-wide setting | `false` refuses HTTP redirects for this item's download; `true` follows them. |
 | `skipIf` | no | | `arm64` or `x86_64`: skip the item on that architecture. |
 | `donotwait` | no | `false` | Start a script and move on without waiting for it to finish. |
 | `baseline` | no | `true` | Set `false` to leave the item out of baseline runs. |
+
+## Baseline throttle
+
+Every run fetches the manifest and may download payloads, so a baseline must not repeat sooner than intended. BootstrapMate records the outcome of each baseline run in `/Library/Managed Bootstrap/baseline.json`. At the start of the next run, before it waits for the network or fetches anything, it decides whether to go ahead:
+
+- After a completed baseline, the next run waits `baselineMinIntervalHours` (default 144, six days, so a weekly schedule still runs every time).
+- After a baseline that ended `partial_failure` or `failed`, one retry is allowed after 24 hours. If that retry does not complete either, the full interval applies again.
+- A throttled run ends as `skip`, logs why, and removes its LaunchDaemon like any other finished run.
+
+The throttle never holds back a run when there is no baseline record. A Mac being provisioned has none, and a provisioning run clears the record. It also never holds back a run while the file named by `forceRunFile` exists, or a dry run, or `--userscript`. The throttle only checks for the force file; the preflight is what consumes it.
+
+Packages are not downloaded when nothing has changed. A package whose receipt shows the manifest's version is skipped before any download. In a baseline run, so is a package file whose hash is already in the install ledger, unless its receipt now shows an older version. Downloaded files stay in the cache while `retainCache` is true, so an unchanged script is not downloaded again either.
+
+The LaunchDaemon runs once when it is loaded (`RunAtLoad`) and has no `KeepAlive` or schedule. Every run, including one that fails to load its manifest, removes the daemon when it finishes.
 
 ## Dry run
 
@@ -158,6 +172,8 @@ BootstrapMate reads these keys from the `com.github.bootstrapmate` domain, norma
 | `dialogIcon` | string | gear symbol | The window's icon: a file path or a SwiftDialog `SF=` symbol. |
 | `blurScreen` | bool | `false` | Blur the screen behind the window. |
 | `retainCache` | bool | `true` | Keep downloaded payloads in `/Library/Managed Bootstrap/cache` after a successful run, so a later run does not download them again. `false` empties the cache when a run succeeds. |
+| `baselineMinIntervalHours` | integer | `144` | Minimum hours between baseline runs; see Baseline throttle. `0` turns the throttle off. |
+| `forceRunFile` | string | `/Library/Managed Bootstrap/.bootstrapmate-force-run` | A file whose presence exempts the next run from the baseline throttle. Point it at the file your preflight checks for a forced run. |
 | `userlandLoginTimeout` | integer | `3600` | Seconds to wait for a user to log in before skipping the userland stage. `0` waits forever. |
 | `reboot`, `dryRun`, `silentMode`, `verboseMode`, `followRedirects` | bool | | As the matching CLI flags. |
 

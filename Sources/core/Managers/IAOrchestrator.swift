@@ -46,6 +46,9 @@ public final class IAOrchestrator {
     /// test can point it somewhere other than the system path.
     public var ledger = InstallLedger()
 
+    /// Where the last baseline's outcome is kept for the throttle.
+    public var baselineStatePath = BaselineThrottle.defaultPath
+
     /// Set once the preflight has chosen baseline mode for this run.
     private var baselineRun = false
 
@@ -75,6 +78,8 @@ public final class IAOrchestrator {
         // Get manifest
         guard let manifest = ManifestManager.shared.getManifest() else {
             Logger.error("No manifest loaded.")
+            Logger.writeSessionSummary(status: "failed")
+            if !DryRun.isEnabled { registerCleanupTasks() }
             return false
         }
         
@@ -181,6 +186,21 @@ public final class IAOrchestrator {
         // Post a vendor-neutral run summary to the optional reporting endpoint
         // before cleanup boots us out. Best-effort and bounded by a short
         // timeout; a failure is logged but never fails the run.
+        // Record the outcome for the baseline throttle: a baseline run sets the
+        // clock for the next one; a provisioning run starts the record over.
+        if !DryRun.isEnabled && !preflightFailed {
+            if baseline {
+                let state = BaselineThrottle.next(
+                    after: BaselineThrottle.load(from: baselineStatePath),
+                    status: success ? "completed" : "partial_failure"
+                )
+                BaselineThrottle.save(state, to: baselineStatePath)
+                Logger.info("Baseline recorded as \(state.status) for the throttle")
+            } else {
+                BaselineThrottle.clear(at: baselineStatePath)
+            }
+        }
+
         // A dry run stops short of everything that acts on the Mac or tells
         // the fleet it was provisioned.
         if DryRun.isEnabled {
@@ -433,8 +453,11 @@ public final class IAOrchestrator {
             return true
         }
 
-        // Baseline repeats on a machine in use: never reinstall the same file.
-        if baselineRun, ledger.contains(hash: item.hash) {
+        // Baseline repeats on a machine in use: never reinstall, or even
+        // download, a file already installed. The ledger is trusted unless the
+        // package's receipt shows an older version than the manifest names,
+        // which means it was replaced since and needs reinstalling.
+        if baselineRun, ledger.contains(hash: item.hash), !receiptIsOlder(item) {
             Logger.writeSkipped("\(displayName) - this build was already installed by BootstrapMate")
             record(displayName, .skipped)
             return true
@@ -553,6 +576,16 @@ public final class IAOrchestrator {
     }
 
     // MARK: - Helper Methods
+
+    /// True when the item names a package whose receipt is present but older
+    /// than the manifest's version.
+    private func receiptIsOlder(_ item: ManifestItem) -> Bool {
+        guard let pkgID = item.packageid, let ver = item.version,
+              PackageManager.shared.isPackageInstalled(packageID: pkgID, minVersion: nil) else {
+            return false
+        }
+        return !PackageManager.shared.isPackageInstalled(packageID: pkgID, minVersion: ver)
+    }
 
     private func record(_ name: String, _ result: RunItemResult, error: String? = nil) {
         Logger.recordItem(name, stage: currentStage, result: result, error: error)
