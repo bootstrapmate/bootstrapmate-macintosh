@@ -1909,3 +1909,50 @@ struct FileTrustTests {
         #expect(FileManager.default.contents(atPath: outside) == Data(#"{"status":"running"}"#.utf8))
     }
 }
+
+// MARK: - ManagementDetector Tests
+
+@Suite("ManagementDetector Tests")
+struct ManagementDetectorTests {
+
+    private func detector(forced: Set<String>, values: [String: String] = [:]) -> ManagementDetector {
+        ManagementDetector(
+            isForced: { key, _ in forced.contains(key) },
+            readValue: { key, _ in values[key] }
+        )
+    }
+
+    @Test("A key is managed only when a profile forces it")
+    func forcedOnly() {
+        let d = detector(forced: [])
+        #expect(!d.isManaged(key: "jsonUrl"))
+        #expect(d.allManagedKeys().isEmpty)
+    }
+
+    @Test("A forced alias locks its canonical key")
+    func aliasLocksCanonical() {
+        let d = detector(forced: ["ManifestURL"], values: ["ManifestURL": "https://example.com/m.json"])
+        #expect(d.isManaged(key: "jsonUrl"))
+        #expect(d.isManaged(key: "url"))
+        #expect(d.managedValue(forKey: "jsonUrl") as? String == "https://example.com/m.json")
+        #expect(d.allManagedKeys() == ["jsonUrl"])
+    }
+
+    @Test("Every GUI field can be locked by a profile")
+    func everyFieldLockable() {
+        let all = Set(ManagementDetector.keyAliases.values.flatMap { $0 })
+        let d = detector(forced: all)
+        for key in ["jsonUrl", "authorizationHeader", "followRedirects", "reboot", "silentMode",
+                    "verboseMode", "dryRun", "userscriptOnly", "enableDialog", "dialogTitle",
+                    "dialogMessage", "dialogIcon", "blurScreen", "retainCache", "networkTimeout"] {
+            #expect(d.isManaged(key: key), "\(key) should be lockable")
+        }
+    }
+
+    @Test("Save keys map to the canonical key")
+    func canonicalMapping() {
+        #expect(ManagementDetector.canonicalKey(for: "url") == "jsonUrl")
+        #expect(ManagementDetector.canonicalKey(for: "headers") == "authorizationHeader")
+        #expect(ManagementDetector.canonicalKey(for: "networkTimeout") == "networkTimeout")
+    }
+}

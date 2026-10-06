@@ -130,7 +130,7 @@ final class SettingsViewModel {
     private(set) var managedKeys: Set<String> = []
 
     func isManaged(_ key: String) -> Bool {
-        managedKeys.contains(key)
+        managedKeys.contains(ManagementDetector.canonicalKey(for: key))
     }
 
     // MARK: - Loading
