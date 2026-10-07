@@ -12,78 +12,94 @@ public final class ManagementDetector: Sendable {
 
     public static let shared = ManagementDetector()
 
+    /// Answers whether a key in a domain is forced by a configuration profile.
+    public typealias ForcedCheck = @Sendable (_ key: String, _ domain: String) -> Bool
+
+    /// Reads a key's effective value in a domain.
+    public typealias ValueRead = @Sendable (_ key: String, _ domain: String) -> Any?
+
     /// Preference domains checked for management, in priority order.
     private let managedDomains = [
         "com.github.bootstrapmate"
     ]
 
-    /// Known key aliases — maps canonical key to all variant names.
-    private static let keyAliases: [String: [String]] = [
-        "jsonUrl":           ["url", "jsonurl", "JsonUrl", "ConfigURL", "ManifestURL"],
+    /// Known key aliases: maps each canonical key the GUI shows to every name
+    /// ConfigManager accepts for it, so a profile using any alias locks the field.
+    public static let keyAliases: [String: [String]] = [
+        "jsonUrl":             ["url", "jsonurl", "JsonUrl", "ConfigURL", "ManifestURL"],
         "authorizationHeader": ["headers", "Headers", "AuthorizationHeader"],
-        "followRedirects":   ["followRedirects", "FollowRedirects"],
-        "silentMode":        ["silentMode", "SilentMode", "silent"],
-        "verboseMode":       ["verboseMode", "VerboseMode", "verbose"],
-        "reboot":            ["reboot", "Reboot"],
-        "retainCache":       ["retainCache", "RetainCache"],
+        "followRedirects":     ["followRedirects", "FollowRedirects"],
+        "silentMode":          ["silentMode", "SilentMode", "silent"],
+        "verboseMode":         ["verboseMode", "VerboseMode", "verbose"],
+        "reboot":              ["reboot", "Reboot"],
+        "dryRun":              ["dryRun"],
+        "userscriptOnly":      ["userscriptOnly"],
+        "enableDialog":        ["enableDialog"],
+        "dialogTitle":         ["dialogTitle", "DialogTitle"],
+        "dialogMessage":       ["dialogMessage", "DialogMessage"],
+        "dialogIcon":          ["dialogIcon"],
+        "blurScreen":          ["blurScreen"],
+        "retainCache":         ["retainCache", "RetainCache"],
+        "networkTimeout":      ["networkTimeout"],
     ]
 
-    private init() {}
+    private let isForced: ForcedCheck
+    private let readValue: ValueRead
+
+    private convenience init() {
+        self.init(
+            isForced: { key, domain in
+                CFPreferencesAppValueIsForced(key as CFString, domain as CFString)
+            },
+            readValue: { key, domain in
+                CFPreferencesCopyAppValue(key as CFString, domain as CFString)
+            }
+        )
+    }
+
+    /// Test seam: supply the forced check and value read instead of CFPreferences.
+    public init(isForced: @escaping ForcedCheck, readValue: @escaping ValueRead) {
+        self.isForced = isForced
+        self.readValue = readValue
+    }
 
     // MARK: - Public API
 
-    /// Returns true if the canonical key is present in any managed preferences plist.
+    /// Returns the canonical key for any alias, or the key itself when it has none.
+    public static func canonicalKey(for key: String) -> String {
+        if keyAliases[key] != nil { return key }
+        for (canonical, aliases) in keyAliases where aliases.contains(key) {
+            return canonical
+        }
+        return key
+    }
+
+    /// Returns true when a configuration profile forces the key or any of its aliases.
     public func isManaged(key: String) -> Bool {
-        let keysToCheck = Self.keyAliases[key] ?? [key]
-        for domain in managedDomains {
-            for plistPath in managedPlistPaths(for: domain) {
-                guard let plist = NSDictionary(contentsOfFile: plistPath) as? [String: Any] else { continue }
-                for alias in keysToCheck {
-                    if plist[alias] != nil { return true }
-                }
-            }
-        }
-        return false
+        forcedAlias(for: key) != nil
     }
 
-    /// Returns the managed value for a canonical key, or nil.
+    /// Returns the profile-forced value for a key, or nil when no profile sets it.
     public func managedValue(forKey key: String) -> Any? {
-        let keysToCheck = Self.keyAliases[key] ?? [key]
-        for domain in managedDomains {
-            for plistPath in managedPlistPaths(for: domain) {
-                guard let plist = NSDictionary(contentsOfFile: plistPath) as? [String: Any] else { continue }
-                for alias in keysToCheck {
-                    if let value = plist[alias] { return value }
-                }
-            }
-        }
-        return nil
+        guard let (alias, domain) = forcedAlias(for: key) else { return nil }
+        return readValue(alias, domain)
     }
 
-    /// Returns the set of canonical keys that are managed.
+    /// Returns the set of canonical keys that a configuration profile forces.
     public func allManagedKeys() -> Set<String> {
-        var result = Set<String>()
-        for (canonical, aliases) in Self.keyAliases {
-            for domain in managedDomains {
-                for plistPath in managedPlistPaths(for: domain) {
-                    guard let plist = NSDictionary(contentsOfFile: plistPath) as? [String: Any] else { continue }
-                    for alias in aliases {
-                        if plist[alias] != nil {
-                            result.insert(canonical)
-                        }
-                    }
-                }
-            }
-        }
-        return result
+        Set(Self.keyAliases.keys.filter { isManaged(key: $0) })
     }
 
     // MARK: - Private
 
-    private func managedPlistPaths(for domain: String) -> [String] {
-        [
-            "/Library/Managed Preferences/\(domain).plist",
-            "/Library/Managed Preferences/\(NSUserName())/\(domain).plist"
-        ]
+    private func forcedAlias(for key: String) -> (String, String)? {
+        let canonical = Self.canonicalKey(for: key)
+        let keysToCheck = Self.keyAliases[canonical] ?? [canonical]
+        for domain in managedDomains {
+            for alias in keysToCheck where isForced(alias, domain) {
+                return (alias, domain)
+            }
+        }
+        return nil
     }
 }
