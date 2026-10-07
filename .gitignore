@@ -139,3 +139,6 @@ notarization-*.json
 .com.apple.timemachine.donotpresent
 
 cmux.json
+
+# Local git worktrees
+/.worktrees/

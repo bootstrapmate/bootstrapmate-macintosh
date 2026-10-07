@@ -44,10 +44,12 @@ struct LogView: View {
     var body: some View {
         HSplitView {
             logFileList
-                .frame(minWidth: 180, idealWidth: 240, maxWidth: 300)
+                .frame(minWidth: 180, idealWidth: 240, maxWidth: 300, maxHeight: .infinity)
 
             logDetailView
+                .frame(minWidth: 320, maxWidth: .infinity, maxHeight: .infinity)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear { refreshLogFiles() }
     }
 
@@ -88,6 +90,16 @@ struct LogView: View {
                 .tag(file)
             }
             .listStyle(.sidebar)
+            .frame(maxHeight: .infinity)
+            .overlay {
+                if logFiles.isEmpty {
+                    ContentUnavailableView {
+                        Label("No Logs Yet", systemImage: "doc.text.magnifyingglass")
+                    } description: {
+                        Text("Logs are written to \(logDirectory).")
+                    }
+                }
+            }
         }
         .onChange(of: selectedLog) { _, newValue in
             if let log = newValue {
@@ -136,6 +148,12 @@ struct LogView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .background(.black.opacity(0.85))
+            } else if logFiles.isEmpty {
+                ContentUnavailableView(
+                    "No Logs",
+                    systemImage: "doc.text",
+                    description: Text("There are no logs yet. They appear here after the first run.")
+                )
             } else {
                 ContentUnavailableView(
                     "No Log Selected",
