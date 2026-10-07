@@ -86,51 +86,37 @@ final class HelperCommandRunner: NSObject, HelperXPCProtocol, @unchecked Sendabl
     }
 
     func setPreference(key: String, stringValue: String, domain: String, withReply reply: @escaping (Bool) -> Void) {
-        CFPreferencesSetValue(
-            key as CFString,
-            stringValue as CFString,
-            domain as CFString,
-            kCFPreferencesAnyUser,
-            kCFPreferencesCurrentHost
-        )
-        let synced = CFPreferencesSynchronize(domain as CFString, kCFPreferencesAnyUser, kCFPreferencesCurrentHost)
-        reply(synced)
+        reply(writePreference(key: key, value: stringValue as CFString, kind: .string, domain: domain))
     }
 
     func setBoolPreference(key: String, boolValue: Bool, domain: String, withReply reply: @escaping (Bool) -> Void) {
-        CFPreferencesSetValue(
-            key as CFString,
-            boolValue as CFPropertyList,
-            domain as CFString,
-            kCFPreferencesAnyUser,
-            kCFPreferencesCurrentHost
-        )
-        let synced = CFPreferencesSynchronize(domain as CFString, kCFPreferencesAnyUser, kCFPreferencesCurrentHost)
-        reply(synced)
+        reply(writePreference(key: key, value: boolValue as CFPropertyList, kind: .bool, domain: domain))
     }
 
     func setIntPreference(key: String, intValue: Int, domain: String, withReply reply: @escaping (Bool) -> Void) {
-        CFPreferencesSetValue(
-            key as CFString,
-            intValue as CFNumber as CFPropertyList,
-            domain as CFString,
-            kCFPreferencesAnyUser,
-            kCFPreferencesCurrentHost
-        )
-        let synced = CFPreferencesSynchronize(domain as CFString, kCFPreferencesAnyUser, kCFPreferencesCurrentHost)
-        reply(synced)
+        reply(writePreference(key: key, value: intValue as CFNumber as CFPropertyList, kind: .int, domain: domain))
     }
 
     func removePreference(key: String, domain: String, withReply reply: @escaping (Bool) -> Void) {
-        CFPreferencesSetValue(
-            key as CFString,
-            nil,
-            domain as CFString,
-            kCFPreferencesAnyUser,
-            kCFPreferencesCurrentHost
+        reply(writePreference(key: key, value: nil, kind: nil, domain: domain))
+    }
+
+    /// Writes one machine-level preference after the policy accepts it. Values go to
+    /// /Library/Preferences (any user, any host), which is where the runner reads them.
+    private func writePreference(key: String, value: CFPropertyList?, kind: HelperPreferencePolicy.ValueKind?, domain: String) -> Bool {
+        let decision = HelperPreferencePolicy.evaluate(
+            domain: domain,
+            key: key,
+            kind: kind,
+            isForced: HelperPreferencePolicy.isForcedByProfile
         )
-        let synced = CFPreferencesSynchronize(domain as CFString, kCFPreferencesAnyUser, kCFPreferencesCurrentHost)
-        reply(synced)
+        guard decision == .allow else {
+            NSLog("BootstrapMate helper refused preference write for %@ in %@: %@", key, domain, String(describing: decision))
+            return false
+        }
+        let cfDomain = HelperPreferencePolicy.domain as CFString
+        CFPreferencesSetValue(key as CFString, value, cfDomain, kCFPreferencesAnyUser, kCFPreferencesAnyHost)
+        return CFPreferencesSynchronize(cfDomain, kCFPreferencesAnyUser, kCFPreferencesAnyHost)
     }
 
     func getHelperVersion(withReply reply: @escaping (String) -> Void) {
