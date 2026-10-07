@@ -1996,3 +1996,16 @@ struct HelperPreferencePolicyTests {
         #expect(HelperPreferencePolicy.evaluate(domain: "com.github.bootstrapmate", key: "dialogIcon", kind: nil, isForced: notForced) == .allow)
     }
 }
+
+@Suite("Managed preferences file check")
+struct ManagedPreferencesFileTests {
+    @Test("Finds a key set in a managed preferences plist, and only that key")
+    func readsManagedFile() throws {
+        let path = NSTemporaryDirectory() + "managed-\(UUID().uuidString).plist"
+        defer { try? FileManager.default.removeItem(atPath: path) }
+        try (["url": "https://example.invalid/m.json"] as NSDictionary).write(to: URL(fileURLWithPath: path))
+        #expect(HelperPreferencePolicy.managedFileSetsKey("url", path: path))
+        #expect(!HelperPreferencePolicy.managedFileSetsKey("networkTimeout", path: path))
+        #expect(!HelperPreferencePolicy.managedFileSetsKey("url", path: path + ".missing"))
+    }
+}

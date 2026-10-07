@@ -55,8 +55,20 @@ public enum HelperPreferencePolicy {
         return .allow
     }
 
-    /// True when a configuration profile forces the key.
+    /// Where the system keeps machine-wide values a configuration profile sets.
+    public static let managedPreferencesPath = "/Library/Managed Preferences/\(domain).plist"
+
+    /// True when a configuration profile forces the key. The helper is long-lived and
+    /// CFPreferences keeps the managed layer it loaded at start-up, so a profile that
+    /// arrives later is also checked for in the managed preferences file itself.
     public static func isForcedByProfile(_ key: String) -> Bool {
-        CFPreferencesAppValueIsForced(key as CFString, domain as CFString)
+        if CFPreferencesAppValueIsForced(key as CFString, domain as CFString) { return true }
+        return managedFileSetsKey(key, path: managedPreferencesPath)
+    }
+
+    /// True when the plist at `path` has a value for `key`.
+    public static func managedFileSetsKey(_ key: String, path: String) -> Bool {
+        guard let dict = NSDictionary(contentsOfFile: path) else { return false }
+        return dict[key] != nil
     }
 }
