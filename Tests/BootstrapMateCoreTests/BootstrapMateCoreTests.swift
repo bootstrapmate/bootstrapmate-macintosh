@@ -1956,3 +1956,43 @@ struct ManagementDetectorTests {
         #expect(ManagementDetector.canonicalKey(for: "networkTimeout") == "networkTimeout")
     }
 }
+
+// MARK: - HelperPreferencePolicy Tests
+
+@Suite("HelperPreferencePolicy Tests")
+struct HelperPreferencePolicyTests {
+    let notForced: (String) -> Bool = { _ in false }
+
+    @Test("Accepts a known key of the right type in BootstrapMate's domain")
+    func allowsKnownKey() {
+        #expect(HelperPreferencePolicy.evaluate(domain: "com.github.bootstrapmate", key: "networkTimeout", kind: .int, isForced: notForced) == .allow)
+        #expect(HelperPreferencePolicy.evaluate(domain: "com.github.bootstrapmate", key: "url", kind: .string, isForced: notForced) == .allow)
+    }
+
+    @Test("Refuses any other preference domain")
+    func refusesOtherDomain() {
+        #expect(HelperPreferencePolicy.evaluate(domain: "com.apple.loginwindow", key: "url", kind: .string, isForced: notForced) == .wrongDomain)
+    }
+
+    @Test("Refuses keys the Prefs window does not edit")
+    func refusesUnknownKey() {
+        #expect(HelperPreferencePolicy.evaluate(domain: "com.github.bootstrapmate", key: "Evil", kind: .string, isForced: notForced) == .unknownKey)
+    }
+
+    @Test("Refuses a value of the wrong type")
+    func refusesWrongType() {
+        #expect(HelperPreferencePolicy.evaluate(domain: "com.github.bootstrapmate", key: "reboot", kind: .string, isForced: notForced) == .wrongType)
+    }
+
+    @Test("Refuses a key a profile forces, including removal")
+    func refusesManagedKey() {
+        let forced: (String) -> Bool = { $0 == "url" }
+        #expect(HelperPreferencePolicy.evaluate(domain: "com.github.bootstrapmate", key: "url", kind: .string, isForced: forced) == .managed)
+        #expect(HelperPreferencePolicy.evaluate(domain: "com.github.bootstrapmate", key: "url", kind: nil, isForced: forced) == .managed)
+    }
+
+    @Test("Allows removing an allowed key")
+    func allowsRemoval() {
+        #expect(HelperPreferencePolicy.evaluate(domain: "com.github.bootstrapmate", key: "dialogIcon", kind: nil, isForced: notForced) == .allow)
+    }
+}
