@@ -2053,3 +2053,41 @@ struct DialogAuthorisationKeyTests {
         #expect(NetworkManager.usableHeader("Basic abc") == "Basic abc")
     }
 }
+
+// MARK: - Command-line redaction
+
+@Suite("Command-line redaction")
+struct CommandLineRedactionTests {
+
+    @Test("Hides the value after --headers and --reporting-header")
+    func separateValue() {
+        let args = ["managedbootstrapinstall", "--jsonurl", "https://example.com/m.json", "--headers", "Bearer abc", "--verbose"]
+        #expect(CommandLineRedaction.redact(args) == ["managedbootstrapinstall", "--jsonurl", "https://example.com/m.json", "--headers", "<redacted>", "--verbose"])
+        #expect(CommandLineRedaction.redact(["--reporting-header", "s3cret"]) == ["--reporting-header", "<redacted>"])
+    }
+
+    @Test("Hides the value in the --headers=value form, whatever the case")
+    func equalsForm() {
+        #expect(CommandLineRedaction.redact(["--headers=Basic dXNlcjpwYXNz"]) == ["--headers=<redacted>"])
+        #expect(CommandLineRedaction.redact(["--HEADERS=x"]) == ["--HEADERS=<redacted>"])
+    }
+
+    @Test("Hides any argument that is an Authorization value")
+    func authorizationValues() {
+        #expect(CommandLineRedaction.redact(["Bearer abc"]) == ["<redacted>"])
+        #expect(CommandLineRedaction.redact(["basic dXNlcjpwYXNz"]) == ["<redacted>"])
+        #expect(CommandLineRedaction.redact(["Authorization: Bearer abc"]) == ["<redacted>"])
+    }
+
+    @Test("Leaves a command line with no credential exactly as it was")
+    func noCredential() {
+        let args = ["managedbootstrapinstall", "--jsonurl", "https://example.com/m.json", "--verbose", "--dry-run", "--dialog-title", "Basics"]
+        #expect(CommandLineRedaction.redact(args) == args)
+        #expect(CommandLineRedaction.redactedCommandLine(args) == args.joined(separator: " "))
+    }
+
+    @Test("A trailing --headers with no value is kept")
+    func trailingOption() {
+        #expect(CommandLineRedaction.redact(["--headers"]) == ["--headers"])
+    }
+}

@@ -302,6 +302,8 @@ Every run also keeps a summary of itself at `/Library/Managed Bootstrap/last-run
 
 `status` uses the same values as `session.json`: `running`, `completed`, `partial_failure`, `failed` or `interrupted`. A run stopped by SIGTERM (a shutdown or restart, or a bootout) closes its session as `interrupted`. A run that could not, because it crashed or was killed outright, stays `running` until the next run starts. That run marks it `interrupted` in `last-run.json` and in its `session.json`, logs a warning, and then starts its own record. Only one run happens at a time: a second instance exits at once and leaves the live run's records alone. Reinstalling the package during a run does not stop it; the postinstall leaves a running job alone and reloads the daemon only when it is idle. Each item's `stage` is `setupassistant` or `userland`, its `result` is `installed`, `skipped` or `failed`, and `error` is present only on failures.
 
+No Authorization header is written to the log or `session.json`. The command line recorded in both shows `--headers <redacted>` (also `--headers=<redacted>`), and any argument that is itself an Authorization value, such as `Bearer …`, shows as `<redacted>`.
+
 `managedbootstrapinstall --last-run` prints the record as one line of at most 1000 characters, suited to an MDM custom attribute or a script result. The time is the end time, or the start time while a run is going, in UTC to the minute. It prints `no run recorded` when there is no file, and always exits 0.
 
 ```
