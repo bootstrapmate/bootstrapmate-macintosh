@@ -175,11 +175,11 @@ BootstrapMate reads these keys from the `com.github.bootstrapmate` domain, norma
 | Key | Type | Default | Effect |
 |---|---|---|---|
 | `url` | string | | Manifest URL. Required unless `--jsonurl` is passed. |
-| `headers` | string | | `Authorization` header sent with the manifest request. |
+| `headers` | string | | `Authorization` header sent with the manifest request. An empty value sends none, so a profile can manage the field without setting a header. |
 | `networkTimeout` | integer | `120` | Seconds to wait for a network connection before the run starts. `--network-timeout` overrides it. |
 | `enableDialog` | bool | `true` | Show the SwiftDialog window during a provisioning run. `--no-dialog` and `--silent` turn it off whatever this says. |
 | `dialogTitle`, `dialogMessage` | string | | The window's title and message. `--dialog-title` and `--dialog-message` override them. |
-| `dialogIcon` | string | gear symbol | The window's icon: a file path or a SwiftDialog `SF=` symbol. |
+| `dialogIcon` | string | gear symbol | The window's icon: a file path or a SwiftDialog `SF=` symbol. An empty value means the gear symbol. |
 | `blurScreen` | bool | `false` | Blur the screen behind the window. |
 | `retainCache` | bool | `true` | Keep downloaded payloads in `/Library/Managed Bootstrap/cache` after a successful run, so a later run does not download them again. `false` empties the cache when a run succeeds. |
 | `baselineMinIntervalHours` | integer | `144` | Minimum hours between baseline runs; see Baseline throttle. `0` turns the throttle off. |
@@ -204,6 +204,8 @@ Baseline mode is for a machine that is already provisioned and in use. It brings
 Root scripts run with `BOOTSTRAPMATE_BASELINE_EXIT_CODE` set in their environment. A preflight that may be run by an older build checks for it before asking for baseline, because a build without baseline mode treats exit `2` as Provision.
 
 The SwiftDialog window opens only after the preflight has chosen Provision, so Skip and Baseline runs never show one.
+
+When a configuration profile forces swiftDialog's `AuthorisationKey`, dialog shows nothing to a caller that does not present the key. BootstrapMate reads the key from `/Library/Managed Notifications/.authkey` and hands it to dialog in `DIALOG_AUTH_KEY`, never on the command line. The file counts only when owned by root, writable by no other account, in a directory only root can write; make it readable by root alone.
 
 ## Development
 

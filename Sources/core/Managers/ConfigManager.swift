@@ -324,7 +324,8 @@ public final class ConfigManager {
         let headerKeys = ["headers", "Headers", "AuthorizationHeader"]
         for key in headerKeys {
             if let value = CFPreferencesCopyAppValue(key as CFString, cfDomain) as? String {
-                config.authorizationHeader = value
+                // An empty value manages the field without sending a header.
+                config.authorizationHeader = value.isEmpty ? nil : value
                 break
             }
         }
@@ -448,7 +449,7 @@ public final class ConfigManager {
             }
         }
         if let value = CFPreferencesCopyAppValue("dialogIcon" as CFString, cfDomain) as? String {
-            config.dialogIcon = value
+            config.dialogIcon = value.isEmpty ? nil : value
         }
         if let value = CFPreferencesCopyAppValue("blurScreen" as CFString, cfDomain) as? Bool {
             config.blurScreen = value

@@ -2009,3 +2009,47 @@ struct ManagedPreferencesFileTests {
         #expect(!HelperPreferencePolicy.managedFileSetsKey("url", path: path + ".missing"))
     }
 }
+
+@Suite("Dialog authorisation key and empty settings")
+struct DialogAuthorisationKeyTests {
+    @Test("Reads a trusted key file, trimming the trailing newline")
+    func readsTrustedKey() throws {
+        let dir = NSTemporaryDirectory() + "authkey-\(UUID().uuidString)"
+        try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o755])
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+        let path = dir + "/.authkey"
+        FileManager.default.createFile(atPath: path, contents: Data("secret-key\n".utf8), attributes: [.posixPermissions: 0o600])
+        #expect(DialogManager.authorisationKey(at: path) == "secret-key")
+    }
+
+    @Test("Ignores a missing, empty or world-writable key file")
+    func ignoresUntrustedKey() throws {
+        let dir = NSTemporaryDirectory() + "authkey-\(UUID().uuidString)"
+        try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o755])
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+        #expect(DialogManager.authorisationKey(at: dir + "/missing") == nil)
+        let empty = dir + "/empty"
+        FileManager.default.createFile(atPath: empty, contents: Data("\n".utf8), attributes: [.posixPermissions: 0o600])
+        #expect(DialogManager.authorisationKey(at: empty) == nil)
+        let open = dir + "/open"
+        FileManager.default.createFile(atPath: open, contents: Data("key".utf8), attributes: nil)
+        chmod(open, 0o666)
+        #expect(DialogManager.authorisationKey(at: open) == nil)
+    }
+
+    @Test("Puts the key in DIALOG_AUTH_KEY and drops an inherited one when there is none")
+    func environment() {
+        let base = ["PATH": "/usr/bin", "DIALOG_AUTH_KEY": "inherited"]
+        #expect(DialogManager.dialogEnvironment(base: base, key: "k")["DIALOG_AUTH_KEY"] == "k")
+        #expect(DialogManager.dialogEnvironment(base: base, key: nil)["DIALOG_AUTH_KEY"] == nil)
+        #expect(DialogManager.dialogEnvironment(base: base, key: nil)["PATH"] == "/usr/bin")
+    }
+
+    @Test("Treats an empty Authorization header as none")
+    func emptyHeader() {
+        #expect(NetworkManager.usableHeader(nil) == nil)
+        #expect(NetworkManager.usableHeader("") == nil)
+        #expect(NetworkManager.usableHeader("  ") == nil)
+        #expect(NetworkManager.usableHeader("Basic abc") == "Basic abc")
+    }
+}
