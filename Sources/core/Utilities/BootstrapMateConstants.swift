@@ -27,6 +27,8 @@ public enum BootstrapMateConstants {
     public static let managedDirectory = "/Library/Managed Bootstrap"
     public static let cacheDirectory = "/Library/Managed Bootstrap/cache"
     public static let logsDirectory = "/Library/Managed Bootstrap/logs"
+    /// Credentials only root may read: root-owned, mode 0700.
+    public static let secretsDirectory = "/Library/Managed Bootstrap/Secrets"
     /// The most recent run's summary, beside the logs directory.
     public static let lastRunPath = "/Library/Managed Bootstrap/last-run.json"
     

@@ -95,6 +95,14 @@ public struct BootstrapMateConfig {
     }
 }
 
+/// Where the run's Authorization header came from.
+public enum AuthorizationHeaderSource: String, Sendable {
+    case none
+    case commandLine = "command line"
+    case preferences
+    case secretsFile = "secrets file"
+}
+
 public final class ConfigManager {
     nonisolated(unsafe) public static let shared = ConfigManager()
     
@@ -105,6 +113,14 @@ public final class ConfigManager {
     
     /// Current active configuration
     public private(set) var config: BootstrapMateConfig
+
+    /// Where `config.authorizationHeader` came from. Set by
+    /// `applyCliArguments` and `applyAuthorizationHeaderFile`.
+    public private(set) var authorizationHeaderSource: AuthorizationHeaderSource = .none
+
+    /// The manifest URL the preferences gave, before any command-line
+    /// override. Set by `applyCliArguments`.
+    private var preferencesJsonUrl: String?
     
     /// Unsupported keys already named in the log, so the wait for the
     /// management profile, which rereads preferences every second, names each
@@ -139,6 +155,7 @@ public final class ConfigManager {
         expectedTeamID: String? = nil,
         allowUnsigned: Bool? = nil
     ) {
+        preferencesJsonUrl = config.jsonUrl
         if let url = jsonUrl, !url.isEmpty {
             config.jsonUrl = url
             Logger.debug("CLI override: jsonUrl = \(url)")
@@ -146,6 +163,7 @@ public final class ConfigManager {
         
         if let auth = headers, !auth.isEmpty {
             config.authorizationHeader = auth
+            authorizationHeaderSource = .commandLine
             Logger.debug("CLI override: authorizationHeader set")
         }
         
@@ -200,6 +218,116 @@ public final class ConfigManager {
         }
     }
     
+    /// The header to use, by precedence: the command line, then the
+    /// preferences (a non-empty value), then the root-only file. The file is
+    /// read only when neither of the others gives a header.
+    ///
+    /// The privileged helper runs this tool as root with whatever arguments
+    /// the Settings window passes, and a standard user can type any manifest
+    /// URL there. So a header the user did not supply is used only when the
+    /// manifest URL is https on the host the administrator configured:
+    ///
+    /// - The root-only file: the host of `managedURL`, the manifest URL a
+    ///   configuration profile forces. Without one the file is not used.
+    /// - The preferences: the host of `managedURL`, else of `preferencesURL`
+    ///   (the preferences' own URL, before any command-line override), so a
+    ///   URL given on the command line never inherits the header to another
+    ///   host.
+    /// - The command line: the caller supplied the header, so it is not
+    ///   gated here; it still goes only to the manifest's https host.
+    ///
+    /// A header that fails its check is dropped, with a warning that names
+    /// the hosts and never the value, and no lower source is tried.
+    static func resolveAuthorizationHeader(
+        commandLine: String?,
+        preferences: String?,
+        file: () -> String?,
+        manifestURL: String?,
+        preferencesURL: String?,
+        managedURL: String?
+    ) -> (header: String?, source: AuthorizationHeaderSource) {
+        if let header = NetworkManager.usableHeader(commandLine) { return (header, .commandLine) }
+
+        let candidate: (header: String, source: AuthorizationHeaderSource, configuredURL: String?)
+        if let header = NetworkManager.usableHeader(preferences) {
+            candidate = (header, .preferences, managedURL ?? preferencesURL)
+        } else if let header = NetworkManager.usableHeader(file()) {
+            candidate = (header, .secretsFile, managedURL)
+        } else {
+            return (nil, .none)
+        }
+
+        guard isConfiguredHost(manifestURL, configuredURL: candidate.configuredURL) else {
+            let configured = candidate.configuredURL.flatMap { URL(string: $0)?.host } ?? "none"
+            Logger.warning("Not using the Authorization header from the \(candidate.source.rawValue): the manifest URL \(manifestURL ?? "none") is not https on the administrator-configured manifest host (\(configured))")
+            return (nil, .none)
+        }
+        return (candidate.header, candidate.source)
+    }
+
+    /// True when `manifestURL` is https on the same host as `configuredURL`,
+    /// which must be https too.
+    static func isConfiguredHost(_ manifestURL: String?, configuredURL: String?) -> Bool {
+        guard let manifestURL, let configuredURL,
+              let manifest = URL(string: manifestURL),
+              let configured = URL(string: configuredURL)
+        else { return false }
+        return NetworkManager.isAuthorizedHost(manifest, scope: configured)
+    }
+
+    /// The manifest URL a configuration profile forces, if any. A value in
+    /// /Library/Preferences does not count: the helper writes the `url`
+    /// preference on behalf of a standard user.
+    static func managedManifestURL() -> String? {
+        let domain = BootstrapMateConstants.daemonIdentifier
+        for key in ["url", "jsonurl", "JsonUrl", "ConfigURL", "ManifestURL"] {
+            if CFPreferencesAppValueIsForced(key as CFString, domain as CFString),
+               let value = CFPreferencesCopyAppValue(key as CFString, domain as CFString) as? String,
+               !value.isEmpty {
+                return value
+            }
+        }
+        let path = HelperPreferencePolicy.managedPreferencesPath
+        guard FileTrust.isTrustedFile(path),
+              let plist = NSDictionary(contentsOfFile: path) as? [String: Any]
+        else { return nil }
+        for key in ["url", "jsonurl", "JsonUrl", "ConfigURL", "ManifestURL"] {
+            if let value = plist[key] as? String, !value.isEmpty { return value }
+        }
+        return nil
+    }
+
+    /// Settles the run's Authorization header once the command line has been
+    /// applied, falling back to the root-only file at `path` when neither the
+    /// command line nor the preferences give one, and dropping a header the
+    /// manifest URL may not have (see `resolveAuthorizationHeader`). With no
+    /// header anywhere the configuration is left exactly as it was.
+    public func applyAuthorizationHeaderFile(at path: String = AuthorizationHeaderFile.defaultPath) {
+        let fromCommandLine = authorizationHeaderSource == .commandLine
+        guard fromCommandLine
+            || NetworkManager.usableHeader(config.authorizationHeader) != nil
+            || FileManager.default.fileExists(atPath: path)
+        else {
+            authorizationHeaderSource = .none
+            return
+        }
+        let resolved = Self.resolveAuthorizationHeader(
+            commandLine: fromCommandLine ? config.authorizationHeader : nil,
+            preferences: fromCommandLine ? nil : config.authorizationHeader,
+            file: { AuthorizationHeaderFile.read(at: path) },
+            manifestURL: config.jsonUrl,
+            preferencesURL: preferencesJsonUrl,
+            managedURL: Self.managedManifestURL()
+        )
+        authorizationHeaderSource = resolved.source
+        if resolved.source == .none {
+            config.authorizationHeader = nil
+        } else if resolved.source == .secretsFile {
+            config.authorizationHeader = resolved.header
+            Logger.debug("authorizationHeader read from \(path)")
+        }
+    }
+
     /// Get the effective JSON URL (from config or fallback)
     public func getEffectiveJsonUrl() -> String? {
         return config.jsonUrl
@@ -525,6 +653,7 @@ public final class ConfigManager {
     /// Reload all preferences from CFPreferences (call after GUI saves via XPC).
     public func reloadPreferences() {
         config = BootstrapMateConfig()
+        authorizationHeaderSource = .none
         loadManagedPreferences()
     }
 
@@ -532,7 +661,7 @@ public final class ConfigManager {
     public func printCurrentConfig() {
         Logger.debug("Current Configuration:")
         Logger.debug("  jsonUrl: \(config.jsonUrl ?? "not set")")
-        Logger.debug("  authorizationHeader: \(config.authorizationHeader != nil ? "[set]" : "not set")")
+        Logger.debug("  authorizationHeader: \(NetworkManager.usableHeader(config.authorizationHeader) != nil ? "[set] from \(authorizationHeaderSource.rawValue)" : "not set")")
         Logger.debug("  followRedirects: \(config.followRedirects)")
         Logger.debug("  dryRun: \(config.dryRun)")
         Logger.debug("  reboot: \(config.reboot)")
