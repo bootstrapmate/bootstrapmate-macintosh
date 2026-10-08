@@ -353,7 +353,7 @@ public final class SessionLog {
             "os_version": info.operatingSystemVersionString,
             "user": NSUserName(),
             "pid": String(info.processIdentifier),
-            "command_line": CommandLine.arguments.joined(separator: " ")
+            "command_line": CommandLineRedaction.redactedCommandLine()
         ]
     }
 }

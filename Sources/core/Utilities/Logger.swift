@@ -113,7 +113,7 @@ public final class Logger {
         writeToFile(level: .info, "OS: \(ProcessInfo.processInfo.operatingSystemVersionString)")
         writeToFile(level: .info, "Architecture: \(getArchitecture())")
         writeToFile(level: .info, "Working Directory: \(FileManager.default.currentDirectoryPath)")
-        writeToFile(level: .info, "Command Line: \(CommandLine.arguments.joined(separator: " "))")
+        writeToFile(level: .info, "Command Line: \(CommandLineRedaction.redactedCommandLine())")
         writeToFile(level: .info, "Verbose Console: \(verboseConsole)")
         writeToFile(level: .info, "Silent Mode: \(silentMode)")
         if prunedCount > 0 {

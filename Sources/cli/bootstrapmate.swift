@@ -179,7 +179,7 @@ struct BootstrapMate: ParsableCommand {
         if let orphan {
             Logger.warning("Previous run \(orphan.sessionId) (started \(orphan.startTime), v\(orphan.toolVersion)) never finished; recorded as interrupted")
         }
-        Logger.debug("CLI arguments: \(CommandLine.arguments.joined(separator: " "))")
+        Logger.debug("CLI arguments: \(CommandLineRedaction.redactedCommandLine())")
         
         // Wait for network connectivity before proceeding. The CLI value wins;
         // otherwise the networkTimeout managed preference applies.
