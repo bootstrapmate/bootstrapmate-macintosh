@@ -1,4 +1,13 @@
-# Builds an UNSIGNED BootstrapMate .pkg and publishes it as a GitHub release.
+# Builds BootstrapMate and publishes two assets:
+#
+#   BootstrapMate-<version>.pkg         unsigned, built exactly as before.
+#   BootstrapMate-<version>-signed.pkg  a copy of the same payload signed with a
+#                                       Developer ID, notarized and stapled, for
+#                                       anyone installing directly.
+#
+# The unsigned pkg is kept, unchanged, for the downstream pipeline described
+# below: it downloads BootstrapMate-*.pkg and skips any name containing
+# "-signed", so the signed asset does not alter what it receives.
 #
 # This public repo holds NO Apple Developer ID -- the pkg ships unsigned and
 # un-notarized. The ECU Munki bootstrap pipeline (private Azure DevOps) pulls
@@ -28,12 +37,16 @@ concurrency:
 
 jobs:
   release:
-    name: Build unsigned pkg + publish
+    name: Build unsigned + signed pkgs, publish
     runs-on: macos-26
     permissions:
       contents: write
+    # Notarization for a young team can sit in Apple's queue for over an hour.
+    timeout-minutes: 330
+    env:
+      NOTARIZATION_PROFILE: notary
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
       - name: Select Xcode (26.x for the macOS 26 Liquid Glass SDK)
         run: sudo xcode-select -s "$(ls -d /Applications/Xcode_26*.app | sort -V | tail -1)"
@@ -141,23 +154,128 @@ jobs:
           ls -lh "$PKG"
           pkgutil --payload-files "$PKG" | grep -E 'BootstrapMate(GUI|Helper)|managedbootstrapinstall' || true
 
-      - name: Upload pkg artifact
-        uses: actions/upload-artifact@v7
+      - name: Import Developer ID certificates
+        env:
+          P12_BASE64: ${{ secrets.DEVELOPER_ID_P12_BASE64 }}
+          P12_PASSWORD: ${{ secrets.DEVELOPER_ID_P12_PASSWORD }}
+        run: |
+          set -euo pipefail
+          keychain="$RUNNER_TEMP/build.keychain-db"
+          keychain_password="$(uuidgen)"
+          echo "KEYCHAIN=$keychain" >> "$GITHUB_ENV"
+          echo "$P12_BASE64" | base64 --decode > "$RUNNER_TEMP/certs.p12"
+          security create-keychain -p "$keychain_password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$keychain_password" "$keychain"
+          security import "$RUNNER_TEMP/certs.p12" -k "$keychain" -P "$P12_PASSWORD" \
+            -T /usr/bin/codesign -T /usr/bin/productsign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: \
+            -s -k "$keychain_password" "$keychain"
+          security list-keychains -d user -s "$keychain" login.keychain-db
+          rm "$RUNNER_TEMP/certs.p12"
+
+      - name: Store notarization credentials
+        env:
+          NOTARY_KEY_BASE64: ${{ secrets.NOTARY_KEY_BASE64 }}
+          NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
+          NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          key="$RUNNER_TEMP/notary.p8"
+          echo "$NOTARY_KEY_BASE64" | base64 --decode > "$key"
+          xcrun notarytool store-credentials "$NOTARIZATION_PROFILE" \
+            --key "$key" --key-id "$NOTARY_KEY_ID" --issuer "$NOTARY_ISSUER_ID" \
+            --keychain "$KEYCHAIN"
+          rm "$key"
+
+      # Signs a copy of the payload the unsigned step assembled, so both pkgs
+      # carry identical files. Mirrors the Makefile's sign-binaries, sign-app
+      # and sign-pkg targets.
+      - name: Assemble signed pkg
+        id: signed
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+          SIGNING_IDENTITY_APP: ${{ secrets.SIGNING_IDENTITY_APP }}
+          SIGNING_IDENTITY_PKG: ${{ secrets.SIGNING_IDENTITY_INSTALLER }}
+        run: |
+          set -euo pipefail
+          BUILD_DIR=build
+          ROOT="$BUILD_DIR/pkg-root-signed"
+          rm -rf "$ROOT"
+          ditto "$BUILD_DIR/pkg-root" "$ROOT"
+          APP="$ROOT/Applications/Utilities/BootstrapMate.app"
+          sign() { codesign --force --options runtime --timestamp --keychain "$KEYCHAIN" \
+                     --sign "$SIGNING_IDENTITY_APP" "$@"; }
+          # BootstrapMateGUI is the bundle's main executable, so signing it signs
+          # the bundle, which needs every other executable in it signed first.
+          sign --identifier com.github.bootstrapmate.managedbootstrapinstall "$APP/Contents/MacOS/managedbootstrapinstall"
+          sign --identifier com.github.bootstrapmate.helper "$APP/Contents/MacOS/BootstrapMateHelper"
+          sign --identifier com.github.bootstrapmate.gui    "$APP/Contents/MacOS/BootstrapMateGUI"
+          sign --deep "$APP"
+          codesign --verify --strict --deep --verbose=2 "$APP"
+
+          UNSIGNED="$BUILD_DIR/BootstrapMate-${VERSION}-signed.unsigned.pkg"
+          PKG="$BUILD_DIR/BootstrapMate-${VERSION}-signed.pkg"
+          pkgbuild \
+            --root "$ROOT" \
+            --component-plist "$BUILD_DIR/component.plist" \
+            --identifier com.github.bootstrapmate \
+            --version "$VERSION" \
+            --scripts "$BUILD_DIR/scripts" \
+            "$UNSIGNED"
+          productsign --sign "$SIGNING_IDENTITY_PKG" --timestamp --keychain "$KEYCHAIN" "$UNSIGNED" "$PKG"
+          rm "$UNSIGNED"
+          pkgutil --check-signature "$PKG"
+          echo "pkg=$PKG" >> "$GITHUB_OUTPUT"
+
+      - name: Notarize and staple
+        env:
+          PKG: ${{ steps.signed.outputs.pkg }}
+        run: |
+          set -euo pipefail
+          id=$(xcrun notarytool submit "$PKG" --keychain-profile "$NOTARIZATION_PROFILE" \
+                 --keychain "$KEYCHAIN" --output-format json | jq -r .id)
+          echo "Submitted $(basename "$PKG") as $id"
+          deadline=$((SECONDS + 5 * 3600))
+          while :; do
+            status=$(xcrun notarytool info "$id" --keychain-profile "$NOTARIZATION_PROFILE" \
+                       --keychain "$KEYCHAIN" --output-format json | jq -r .status)
+            echo "$(date -u +%H:%M:%S) $status"
+            case "$status" in
+              Accepted) break ;;
+              Invalid|Rejected)
+                xcrun notarytool log "$id" --keychain-profile "$NOTARIZATION_PROFILE" --keychain "$KEYCHAIN"
+                exit 1 ;;
+            esac
+            if [ "$SECONDS" -gt "$deadline" ]; then
+              echo "::error::Still $status after 5 hours. Check later with: xcrun notarytool info $id"
+              exit 1
+            fi
+            sleep 30
+          done
+          xcrun stapler staple "$PKG"
+          spctl -a -vvv -t install "$PKG"
+
+      - name: Upload pkg artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: BootstrapMate-${{ steps.ver.outputs.version }}-pkg
-          path: ${{ steps.pkg.outputs.pkg }}
+          path: |
+            ${{ steps.pkg.outputs.pkg }}
+            ${{ steps.signed.outputs.pkg }}
 
-      - name: Publish GitHub release (unsigned pkg)
+      - name: Publish GitHub release (unsigned + signed pkgs)
         if: startsWith(github.ref, 'refs/tags/')
         env:
           GH_TOKEN: ${{ github.token }}
           TAG_NAME: ${{ github.ref_name }}
           PKG: ${{ steps.pkg.outputs.pkg }}
+          SIGNED_PKG: ${{ steps.signed.outputs.pkg }}
         run: |
           set -euo pipefail
           AUTO_NOTES=$(gh api -X POST "repos/$GITHUB_REPOSITORY/releases/generate-notes" -f tag_name="$TAG_NAME" --jq .body)
           AUTO_NOTES=$(printf '%s\n' "$AUTO_NOTES" | sed -E -e 's/ by @[A-Za-z0-9_-]+ in / in /g' -e '/^#+ New Contributors/d' -e '/made their first contribution/d')
-          NOTES=$(printf '%s\n\n%s\n' "Unsigned BootstrapMate pkg. Signed + notarized downstream by the ECU Munki bootstrap pipeline." "$AUTO_NOTES")
-          gh release create "$TAG_NAME" "$PKG" \
+          NOTES=$(printf '%s\n\n%s\n' "Install **$(basename "$SIGNED_PKG")**: signed with a Developer ID and notarized by Apple. The unsigned pkg beside it is for pipelines that re-sign with their own identity." "$AUTO_NOTES")
+          gh release create "$TAG_NAME" "$PKG" "$SIGNED_PKG" \
             --title "$TAG_NAME" \
             --notes "$NOTES"
