@@ -168,6 +168,34 @@ The LaunchDaemon runs once when it is loaded (`RunAtLoad`) and has no `KeepAlive
 
 Redirects are followed by default, for the manifest and for every item. Set the `followRedirects` managed preference to `false`, or pass `--no-follow-redirects`, to refuse them: a redirected download then fails with the 3xx status and the address it pointed to, instead of fetching from wherever the redirect leads. An item's own `followRedirects` field overrides the run-wide setting for that item.
 
+## Authorization header
+
+A private origin is reached with an `Authorization` header. It is sent only to the manifest's host: to the manifest request, and to a package whose URL has the same host (compared without regard to case) over the same scheme. A package on any other host, such as public blob storage or a vendor CDN, is fetched without it, so the credential never reaches that host, and storage that rejects a foreign `Authorization` header (Azure Blob Storage answers 403) serves the file. A redirect to another host drops the header too. A withheld header is logged at debug level by address, never by value.
+
+The header comes from the first of these that gives one:
+
+1. `--headers` on the command line.
+2. The `headers` managed preference (also `Headers` or `AuthorizationHeader`), when it is not empty.
+3. The file `/Library/Managed Bootstrap/Secrets/AuthorizationHeader`.
+
+A configuration profile's preferences can be read by every user on the Mac, so a credential is better kept in the file. It holds the full header value, such as `Bearer <token>` or `Basic <base64>`, and surrounding whitespace is trimmed. It is used only when it is a regular file owned by root with no group or world permissions (mode `0600`), in a directory owned by root with mode `0700`. A file that fails those checks is ignored with a warning. A standard user cannot read it, so the Settings window never shows it.
+
+Create the directory:
+
+```bash
+sudo install -d -o root -g wheel -m 0700 "/Library/Managed Bootstrap/Secrets"
+```
+
+Then write the file, pasting the header value and ending with Control-D, so the value stays out of the shell history:
+
+```bash
+sudo sh -c 'umask 077 && cat > "/Library/Managed Bootstrap/Secrets/AuthorizationHeader"'
+```
+
+A management tool that deploys the file instead must set the same owner and modes.
+
+With no header from any of the three, no `Authorization` header is sent.
+
 ## Managed preferences
 
 BootstrapMate reads these keys from the `com.github.bootstrapmate` domain, normally delivered in a configuration profile. `examples/config.mobileconfig` sets each one. The reporting and signature keys are covered in their own sections below.
@@ -175,7 +203,7 @@ BootstrapMate reads these keys from the `com.github.bootstrapmate` domain, norma
 | Key | Type | Default | Effect |
 |---|---|---|---|
 | `url` | string | | Manifest URL. Required unless `--jsonurl` is passed. |
-| `headers` | string | | `Authorization` header sent with the manifest request. An empty value sends none, so a profile can manage the field without setting a header. |
+| `headers` | string | | `Authorization` header sent to the manifest's host; see Authorization header. An empty value sends none, so a profile can manage the field without setting a header. |
 | `networkTimeout` | integer | `120` | Seconds to wait for a network connection before the run starts. `--network-timeout` overrides it. |
 | `enableDialog` | bool | `true` | Show the SwiftDialog window during a provisioning run. `--no-dialog` and `--silent` turn it off whatever this says. |
 | `dialogTitle`, `dialogMessage` | string | | The window's title and message. `--dialog-title` and `--dialog-message` override them. |

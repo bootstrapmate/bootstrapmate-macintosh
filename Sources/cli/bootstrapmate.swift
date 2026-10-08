@@ -250,6 +250,9 @@ struct BootstrapMate: ParsableCommand {
             expectedTeamID: expectedTeamId,
             allowUnsigned: allowUnsigned ? true : nil
         )
+        // With no header on the command line or in the preferences, use the
+        // one kept in the root-only secrets file, if there is one.
+        ConfigManager.shared.applyAuthorizationHeaderFile()
         
         // Debug: Show effective configuration
         if verbose {

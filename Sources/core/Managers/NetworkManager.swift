@@ -23,10 +23,27 @@ extension DownloadError: LocalizedError {
 final class RedirectPolicy: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
     let follow: Bool
     let source: String
+    /// The URL whose host may receive the Authorization header. A redirect
+    /// anywhere else is followed without it.
+    let authScope: URL?
 
-    init(follow: Bool, source: String) {
+    init(follow: Bool, source: String, authScope: URL? = nil) {
         self.follow = follow
         self.source = source
+        self.authScope = authScope
+    }
+
+    /// `request` as it should be sent after a redirect: unchanged when it
+    /// carries no Authorization header or stays on the scoped host, and
+    /// without the header when it leaves that host.
+    static func scopedRedirect(_ request: URLRequest, authScope: URL?) -> URLRequest {
+        guard request.value(forHTTPHeaderField: "Authorization") != nil,
+              !NetworkManager.isAuthorizedHost(request.url, scope: authScope)
+        else { return request }
+        var stripped = request
+        stripped.setValue(nil, forHTTPHeaderField: "Authorization")
+        Logger.debug("Authorization header withheld from redirect to another host: \(request.url?.absoluteString ?? "unknown")")
+        return stripped
     }
 
     func urlSession(
@@ -39,7 +56,7 @@ final class RedirectPolicy: NSObject, URLSessionTaskDelegate, @unchecked Sendabl
         let target = request.url?.absoluteString ?? "unknown"
         if follow {
             Logger.debug("Following HTTP \(response.statusCode) redirect from \(source) to \(target)")
-            completionHandler(request)
+            completionHandler(Self.scopedRedirect(request, authScope: authScope))
         } else {
             Logger.warning("Not following HTTP \(response.statusCode) redirect from \(source) to \(target): followRedirects is off")
             completionHandler(nil)
@@ -52,7 +69,38 @@ public final class NetworkManager {
 
     public var authorizationHeader: String?
 
+    /// The manifest this run loaded. The Authorization header authenticates
+    /// against the manifest's server, so a package download carries it only
+    /// when the package is on that same host. Sending it anywhere else would
+    /// hand the credential to that host, and Azure Blob Storage answers 403
+    /// to a public blob request that carries an Authorization header it did
+    /// not issue.
+    public var manifestURL: URL?
+
     private init() {}
+
+    /// True when `url` is on the same host as `scope`, compared without
+    /// regard to case, over the same scheme. Without a scope nothing matches.
+    static func isAuthorizedHost(_ url: URL?, scope: URL?) -> Bool {
+        guard let host = url?.host?.lowercased(), !host.isEmpty,
+              let scopeHost = scope?.host?.lowercased(),
+              let scheme = url?.scheme?.lowercased(),
+              let scopeScheme = scope?.scheme?.lowercased()
+        else { return false }
+        return host == scopeHost && scheme == scopeScheme
+    }
+
+    /// The header to send to `url`: the usable header when `url` is on the
+    /// scoped host, otherwise nil. A header withheld is logged by address,
+    /// never by value.
+    static func header(_ header: String?, for url: URL, scope: URL?) -> String? {
+        guard let usable = usableHeader(header) else { return nil }
+        guard isAuthorizedHost(url, scope: scope) else {
+            Logger.debug("Authorization header withheld from a host other than the manifest's: \(url.absoluteString)")
+            return nil
+        }
+        return usable
+    }
 
     /// Session that never serves cached responses. Bootstrap data must reflect ORIGIN
     /// truth on every run: management.json drives the per-item hash check, so a stale
@@ -81,8 +129,10 @@ public final class NetworkManager {
         authHeader: String?,
         completion: @escaping @Sendable (Data?, Error?) -> Void
     ) {
+        // Every caller fetches the manifest itself, so its own host is the
+        // one the header is for; a redirect elsewhere drops it.
         var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalAndRemoteCacheData)
-        if let header = Self.usableHeader(authHeader) {
+        if let header = Self.header(authHeader, for: url, scope: url) {
             request.addValue(header, forHTTPHeaderField: "Authorization")
         }
         let task = Self.noCacheSession.dataTask(with: request) { data, response, error in
@@ -98,7 +148,7 @@ public final class NetworkManager {
             }
             completion(data, nil)
         }
-        task.delegate = RedirectPolicy(follow: followRedirects, source: url.absoluteString)
+        task.delegate = RedirectPolicy(follow: followRedirects, source: url.absoluteString, authScope: url)
         task.resume()
     }
 
@@ -114,7 +164,8 @@ public final class NetworkManager {
             return
         }
         var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalAndRemoteCacheData)
-        if let header = Self.usableHeader(authHeader) ?? Self.usableHeader(authorizationHeader) {
+        let scope = manifestURL
+        if let header = Self.header(Self.usableHeader(authHeader) ?? authorizationHeader, for: url, scope: scope) {
             request.addValue(header, forHTTPHeaderField: "Authorization")
         }
 
@@ -164,7 +215,7 @@ public final class NetworkManager {
                 completion(.failure(error))
             }
         }
-        task.delegate = RedirectPolicy(follow: followRedirects, source: urlString)
+        task.delegate = RedirectPolicy(follow: followRedirects, source: urlString, authScope: scope)
         task.resume()
     }
 }

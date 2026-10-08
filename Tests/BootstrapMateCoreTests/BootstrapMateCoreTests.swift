@@ -2053,3 +2053,224 @@ struct DialogAuthorisationKeyTests {
         #expect(NetworkManager.usableHeader("Basic abc") == "Basic abc")
     }
 }
+
+// MARK: - Authorization header scope
+
+/// An HTTP server on localhost that answers `/echo` with the Authorization
+/// header it received (or `none`), and `/away` with a 302 to `/echo` on
+/// `redirectHost`, the same server under another name.
+private final class HeaderEchoServer: @unchecked Sendable {
+    private let listener: NWListener
+    private let queue = DispatchQueue(label: "header-echo-server")
+    private(set) var port: UInt16 = 0
+
+    init(redirectHost: String) throws {
+        listener = try NWListener(using: .tcp, on: .any)
+        let ready = DispatchSemaphore(value: 0)
+        listener.stateUpdateHandler = { state in
+            if case .ready = state { ready.signal() }
+        }
+        listener.newConnectionHandler = { [queue, weak self] connection in
+            connection.start(queue: queue)
+            connection.receive(minimumIncompleteLength: 1, maximumLength: 8192) { data, _, _, _ in
+                let request = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
+                let response: String
+                if request.hasPrefix("GET /away") {
+                    let port = self?.port ?? 0
+                    response = "HTTP/1.1 302 Found\r\nLocation: http://\(redirectHost):\(port)/echo\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                } else {
+                    let auth = request.components(separatedBy: "\r\n")
+                        .first { $0.lowercased().hasPrefix("authorization:") }
+                        .map { String($0.dropFirst("authorization:".count)).trimmingCharacters(in: .whitespaces) }
+                        ?? "none"
+                    response = "HTTP/1.1 200 OK\r\nContent-Length: \(auth.utf8.count)\r\nConnection: close\r\n\r\n\(auth)"
+                }
+                connection.send(content: Data(response.utf8), completion: .contentProcessed { _ in
+                    connection.cancel()
+                })
+            }
+        }
+        listener.start(queue: queue)
+        _ = ready.wait(timeout: .now() + 5)
+        port = listener.port?.rawValue ?? 0
+    }
+
+    func stop() { listener.cancel() }
+}
+
+@Suite("Authorization header scope")
+struct AuthorizationHeaderScopeTests {
+
+    private let manifest = URL(string: "https://manifests.example.com/bootstrap/management.json")!
+
+    @Test("Sends the header to the manifest's host")
+    func sameHost() {
+        let pkg = URL(string: "https://manifests.example.com/pkgs/tool.pkg")!
+        #expect(NetworkManager.header("Bearer abc", for: pkg, scope: manifest) == "Bearer abc")
+    }
+
+    @Test("Withholds the header from any other host")
+    func otherHost() {
+        let blob = URL(string: "https://account.blob.core.windows.net/pkgs/tool.pkg")!
+        #expect(NetworkManager.header("Bearer abc", for: blob, scope: manifest) == nil)
+        let sibling = URL(string: "https://cdn.manifests.example.com/tool.pkg")!
+        #expect(NetworkManager.header("Bearer abc", for: sibling, scope: manifest) == nil)
+    }
+
+    @Test("Compares hosts without regard to case")
+    func caseInsensitive() {
+        let pkg = URL(string: "HTTPS://Manifests.EXAMPLE.com/pkgs/tool.pkg")!
+        #expect(NetworkManager.header("Bearer abc", for: pkg, scope: manifest) == "Bearer abc")
+    }
+
+    @Test("Withholds the header over a different scheme, or with no manifest")
+    func schemeAndNoScope() {
+        let plain = URL(string: "http://manifests.example.com/pkgs/tool.pkg")!
+        #expect(NetworkManager.header("Bearer abc", for: plain, scope: manifest) == nil)
+        let pkg = URL(string: "https://manifests.example.com/pkgs/tool.pkg")!
+        #expect(NetworkManager.header("Bearer abc", for: pkg, scope: nil) == nil)
+    }
+
+    @Test("A redirect to another host drops the header; one on the same host keeps it")
+    func redirectScope() {
+        var away = URLRequest(url: URL(string: "https://account.blob.core.windows.net/pkgs/tool.pkg")!)
+        away.setValue("Bearer abc", forHTTPHeaderField: "Authorization")
+        away.setValue("kept", forHTTPHeaderField: "X-Other")
+        let stripped = RedirectPolicy.scopedRedirect(away, authScope: manifest)
+        #expect(stripped.value(forHTTPHeaderField: "Authorization") == nil)
+        #expect(stripped.value(forHTTPHeaderField: "X-Other") == "kept")
+
+        var home = URLRequest(url: URL(string: "https://MANIFESTS.example.com/other.json")!)
+        home.setValue("Bearer abc", forHTTPHeaderField: "Authorization")
+        #expect(RedirectPolicy.scopedRedirect(home, authScope: manifest) == home)
+
+        let bare = URLRequest(url: URL(string: "https://elsewhere.example.net/x")!)
+        #expect(RedirectPolicy.scopedRedirect(bare, authScope: manifest) == bare)
+    }
+
+    private func fetch(_ url: URL, header: String?) -> String? {
+        let done = DispatchSemaphore(value: 0)
+        let body = Box<String?>(nil)
+        NetworkManager.shared.downloadData(from: url, followRedirects: true, authHeader: header) { data, _ in
+            body.value = data.flatMap { String(data: $0, encoding: .utf8) }
+            done.signal()
+        }
+        _ = done.wait(timeout: .now() + 10)
+        return body.value
+    }
+
+    @Test("Over the wire: the manifest host gets the header, a redirect to another host does not")
+    func overTheWire() throws {
+        let server = try HeaderEchoServer(redirectHost: "localhost")
+        defer { server.stop() }
+        let base = "http://127.0.0.1:\(server.port)"
+        #expect(fetch(URL(string: "\(base)/echo")!, header: "Bearer abc") == "Bearer abc")
+        #expect(fetch(URL(string: "\(base)/away")!, header: "Bearer abc") == "none")
+    }
+
+    @Test("With no header anywhere, nothing is sent")
+    func noHeaderAnywhere() throws {
+        let resolved = ConfigManager.resolveAuthorizationHeader(commandLine: nil, preferences: "", file: { nil })
+        #expect(resolved.header == nil)
+        #expect(resolved.source == .none)
+        #expect(NetworkManager.header(resolved.header, for: manifest, scope: manifest) == nil)
+
+        let server = try HeaderEchoServer(redirectHost: "127.0.0.1")
+        defer { server.stop() }
+        let echo = URL(string: "http://127.0.0.1:\(server.port)/echo")!
+        #expect(fetch(echo, header: nil) == "none")
+
+        let path = NSTemporaryDirectory() + "noauth-\(UUID().uuidString)"
+        defer { try? FileManager.default.removeItem(atPath: path) }
+        let done = DispatchSemaphore(value: 0)
+        NetworkManager.shared.downloadFile(toPath: path, from: echo.absoluteString, followRedirects: true, authHeader: nil) { _ in
+            done.signal()
+        }
+        _ = done.wait(timeout: .now() + 10)
+        #expect(FileManager.default.contents(atPath: path) == Data("none".utf8))
+    }
+}
+
+@Suite("Authorization header file")
+struct AuthorizationHeaderFileTests {
+
+    /// A secrets directory and header file with the given modes.
+    private func makeFile(_ contents: String, dirMode: mode_t = 0o700, fileMode: mode_t = 0o600) throws -> (dir: String, path: String) {
+        let dir = NSTemporaryDirectory() + "secrets-\(UUID().uuidString)"
+        try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: false)
+        let path = dir + "/AuthorizationHeader"
+        FileManager.default.createFile(atPath: path, contents: Data(contents.utf8))
+        chmod(path, fileMode)
+        chmod(dir, dirMode)
+        return (dir, path)
+    }
+
+    private func remove(_ dir: String) {
+        chmod(dir, 0o700)
+        try? FileManager.default.removeItem(atPath: dir)
+    }
+
+    @Test("Reads a 0600 file in a 0700 directory, trimmed")
+    func readsSecureFile() throws {
+        let (dir, path) = try makeFile("  Basic dXNlcjpwYXNz\n")
+        defer { remove(dir) }
+        #expect(AuthorizationHeaderFile.read(at: path) == "Basic dXNlcjpwYXNz")
+    }
+
+    @Test("Ignores a file group or world can read or write")
+    func ignoresOpenFile() throws {
+        for mode: mode_t in [0o644, 0o640, 0o604, 0o620, 0o602] {
+            let (dir, path) = try makeFile("Bearer abc", fileMode: mode)
+            defer { remove(dir) }
+            #expect(AuthorizationHeaderFile.read(at: path) == nil)
+        }
+    }
+
+    @Test("Ignores a file whose directory others can enter or write")
+    func ignoresOpenDirectory() throws {
+        for mode: mode_t in [0o755, 0o750, 0o711, 0o777] {
+            let (dir, path) = try makeFile("Bearer abc", dirMode: mode)
+            defer { remove(dir) }
+            #expect(AuthorizationHeaderFile.read(at: path) == nil)
+        }
+    }
+
+    @Test("Ignores a link, an empty file and a missing one")
+    func ignoresLinkEmptyMissing() throws {
+        let (dir, path) = try makeFile("Bearer abc")
+        defer { remove(dir) }
+        let link = dir + "/Link"
+        try FileManager.default.createSymbolicLink(atPath: link, withDestinationPath: path)
+        #expect(AuthorizationHeaderFile.read(at: link) == nil)
+        #expect(AuthorizationHeaderFile.read(at: dir + "/Missing") == nil)
+
+        let (emptyDir, empty) = try makeFile(" \n")
+        defer { remove(emptyDir) }
+        #expect(AuthorizationHeaderFile.read(at: empty) == nil)
+    }
+
+    @Test("Precedence: command line, then preferences, then the file")
+    func precedence() {
+        let fileRead = Box(false)
+        let file: () -> String? = { fileRead.value = true; return "Bearer file" }
+
+        let cli = ConfigManager.resolveAuthorizationHeader(commandLine: "Bearer cli", preferences: "Bearer prefs", file: file)
+        #expect(cli.header == "Bearer cli")
+        #expect(cli.source == .commandLine)
+
+        let prefs = ConfigManager.resolveAuthorizationHeader(commandLine: nil, preferences: "Bearer prefs", file: file)
+        #expect(prefs.header == "Bearer prefs")
+        #expect(prefs.source == .preferences)
+        #expect(fileRead.value == false)
+
+        let fromFile = ConfigManager.resolveAuthorizationHeader(commandLine: nil, preferences: "  ", file: file)
+        #expect(fromFile.header == "Bearer file")
+        #expect(fromFile.source == .secretsFile)
+        #expect(fileRead.value == true)
+    }
+
+    @Test("The default location is the root-only secrets directory")
+    func defaultPath() {
+        #expect(AuthorizationHeaderFile.defaultPath == "/Library/Managed Bootstrap/Secrets/AuthorizationHeader")
+    }
+}

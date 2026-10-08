@@ -60,6 +60,9 @@ public final class ManifestManager {
             Logger.log("Invalid URL string: \(urlString)")
             return false
         }
+        // Package downloads carry the Authorization header only to this host.
+        NetworkManager.shared.manifestURL = url
+
         let semaphore = DispatchSemaphore(value: 0)
         let resultHolder = ResultHolder()
 

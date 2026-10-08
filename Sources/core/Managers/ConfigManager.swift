@@ -95,6 +95,14 @@ public struct BootstrapMateConfig {
     }
 }
 
+/// Where the run's Authorization header came from.
+public enum AuthorizationHeaderSource: String, Sendable {
+    case none
+    case commandLine = "command line"
+    case preferences
+    case secretsFile = "secrets file"
+}
+
 public final class ConfigManager {
     nonisolated(unsafe) public static let shared = ConfigManager()
     
@@ -105,6 +113,10 @@ public final class ConfigManager {
     
     /// Current active configuration
     public private(set) var config: BootstrapMateConfig
+
+    /// Where `config.authorizationHeader` came from. Set by
+    /// `applyCliArguments` and `applyAuthorizationHeaderFile`.
+    public private(set) var authorizationHeaderSource: AuthorizationHeaderSource = .none
     
     /// Unsupported keys already named in the log, so the wait for the
     /// management profile, which rereads preferences every second, names each
@@ -146,6 +158,7 @@ public final class ConfigManager {
         
         if let auth = headers, !auth.isEmpty {
             config.authorizationHeader = auth
+            authorizationHeaderSource = .commandLine
             Logger.debug("CLI override: authorizationHeader set")
         }
         
@@ -200,6 +213,38 @@ public final class ConfigManager {
         }
     }
     
+    /// The header to use, by precedence: the command line, then the
+    /// preferences (a non-empty value), then the root-only file. The file is
+    /// read only when neither of the others gives a header.
+    static func resolveAuthorizationHeader(
+        commandLine: String?,
+        preferences: String?,
+        file: () -> String?
+    ) -> (header: String?, source: AuthorizationHeaderSource) {
+        if let header = NetworkManager.usableHeader(commandLine) { return (header, .commandLine) }
+        if let header = NetworkManager.usableHeader(preferences) { return (header, .preferences) }
+        if let header = NetworkManager.usableHeader(file()) { return (header, .secretsFile) }
+        return (nil, .none)
+    }
+
+    /// Settles the run's Authorization header once the command line has been
+    /// applied, falling back to the root-only file at `path` when neither the
+    /// command line nor the preferences give one. With no header anywhere the
+    /// configuration is left exactly as it was.
+    public func applyAuthorizationHeaderFile(at path: String = AuthorizationHeaderFile.defaultPath) {
+        let fromCommandLine = authorizationHeaderSource == .commandLine
+        let resolved = Self.resolveAuthorizationHeader(
+            commandLine: fromCommandLine ? config.authorizationHeader : nil,
+            preferences: fromCommandLine ? nil : config.authorizationHeader,
+            file: { AuthorizationHeaderFile.read(at: path) }
+        )
+        authorizationHeaderSource = resolved.source
+        if resolved.source == .secretsFile {
+            config.authorizationHeader = resolved.header
+            Logger.debug("authorizationHeader read from \(path)")
+        }
+    }
+
     /// Get the effective JSON URL (from config or fallback)
     public func getEffectiveJsonUrl() -> String? {
         return config.jsonUrl
@@ -525,6 +570,7 @@ public final class ConfigManager {
     /// Reload all preferences from CFPreferences (call after GUI saves via XPC).
     public func reloadPreferences() {
         config = BootstrapMateConfig()
+        authorizationHeaderSource = .none
         loadManagedPreferences()
     }
 
@@ -532,7 +578,7 @@ public final class ConfigManager {
     public func printCurrentConfig() {
         Logger.debug("Current Configuration:")
         Logger.debug("  jsonUrl: \(config.jsonUrl ?? "not set")")
-        Logger.debug("  authorizationHeader: \(config.authorizationHeader != nil ? "[set]" : "not set")")
+        Logger.debug("  authorizationHeader: \(NetworkManager.usableHeader(config.authorizationHeader) != nil ? "[set] from \(authorizationHeaderSource.rawValue)" : "not set")")
         Logger.debug("  followRedirects: \(config.followRedirects)")
         Logger.debug("  dryRun: \(config.dryRun)")
         Logger.debug("  reboot: \(config.reboot)")
