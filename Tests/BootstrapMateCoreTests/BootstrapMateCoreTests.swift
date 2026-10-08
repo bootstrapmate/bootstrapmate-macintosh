@@ -2182,7 +2182,9 @@ struct AuthorizationHeaderScopeTests {
 
     @Test("With no header anywhere, nothing is sent")
     func noHeaderAnywhere() throws {
-        let resolved = ConfigManager.resolveAuthorizationHeader(commandLine: nil, preferences: "", file: { nil })
+        let resolved = ConfigManager.resolveAuthorizationHeader(
+            commandLine: nil, preferences: "", file: { nil },
+            manifestURL: manifest.absoluteString, preferencesURL: manifest.absoluteString, managedURL: nil)
         #expect(resolved.header == nil)
         #expect(resolved.source == .none)
         #expect(NetworkManager.header(resolved.header, for: manifest, scope: manifest) == nil)
@@ -2261,24 +2263,87 @@ struct AuthorizationHeaderFileTests {
         #expect(AuthorizationHeaderFile.read(at: empty) == nil)
     }
 
+    private static let managed = "https://manifests.example.com/bootstrap/management.json"
+
+    private func resolve(
+        commandLine: String? = nil,
+        preferences: String? = nil,
+        file: @escaping () -> String? = { nil },
+        manifestURL: String? = managed,
+        preferencesURL: String? = managed,
+        managedURL: String? = managed
+    ) -> (header: String?, source: AuthorizationHeaderSource) {
+        ConfigManager.resolveAuthorizationHeader(
+            commandLine: commandLine, preferences: preferences, file: file,
+            manifestURL: manifestURL, preferencesURL: preferencesURL, managedURL: managedURL)
+    }
+
     @Test("Precedence: command line, then preferences, then the file")
     func precedence() {
         let fileRead = Box(false)
         let file: () -> String? = { fileRead.value = true; return "Bearer file" }
 
-        let cli = ConfigManager.resolveAuthorizationHeader(commandLine: "Bearer cli", preferences: "Bearer prefs", file: file)
+        let cli = resolve(commandLine: "Bearer cli", preferences: "Bearer prefs", file: file)
         #expect(cli.header == "Bearer cli")
         #expect(cli.source == .commandLine)
 
-        let prefs = ConfigManager.resolveAuthorizationHeader(commandLine: nil, preferences: "Bearer prefs", file: file)
+        let prefs = resolve(preferences: "Bearer prefs", file: file)
         #expect(prefs.header == "Bearer prefs")
         #expect(prefs.source == .preferences)
         #expect(fileRead.value == false)
 
-        let fromFile = ConfigManager.resolveAuthorizationHeader(commandLine: nil, preferences: "  ", file: file)
+        let fromFile = resolve(preferences: "  ", file: file)
         #expect(fromFile.header == "Bearer file")
         #expect(fromFile.source == .secretsFile)
         #expect(fileRead.value == true)
+    }
+
+    @Test("A command-line manifest URL on a foreign host does not get the file's header")
+    func fileHeaderForeignCommandLineURL() {
+        let resolved = resolve(file: { "Bearer file" }, manifestURL: "https://attacker.example.net/x.json")
+        #expect(resolved.header == nil)
+        #expect(resolved.source == .none)
+    }
+
+    @Test("A command-line manifest URL on the managed host gets the file's header")
+    func fileHeaderManagedHostCommandLineURL() {
+        let resolved = resolve(file: { "Bearer file" }, manifestURL: "https://MANIFESTS.example.com/other/management.json")
+        #expect(resolved.header == "Bearer file")
+        #expect(resolved.source == .secretsFile)
+    }
+
+    @Test("The file's header needs a profile-managed manifest URL; a writable preference URL is not enough")
+    func fileHeaderNeedsManagedURL() {
+        let resolved = resolve(file: { "Bearer file" }, managedURL: nil)
+        #expect(resolved.header == nil)
+    }
+
+    @Test("A command-line manifest URL on a foreign host does not inherit the preference header")
+    func preferenceHeaderForeignCommandLineURL() {
+        let unmanaged = resolve(preferences: "Bearer prefs", manifestURL: "https://attacker.example.net/x.json", managedURL: nil)
+        #expect(unmanaged.header == nil)
+        let managed = resolve(preferences: "Bearer prefs", manifestURL: "https://attacker.example.net/x.json")
+        #expect(managed.header == nil)
+        let sameHost = resolve(preferences: "Bearer prefs", manifestURL: "https://manifests.example.com/b.json", managedURL: nil)
+        #expect(sameHost.header == "Bearer prefs")
+    }
+
+    @Test("A preference URL the user rewrote does not carry a profile-managed header off the managed host")
+    func preferenceURLRewrittenUnderProfile() {
+        let rewritten = "https://attacker.example.net/x.json"
+        let resolved = resolve(preferences: "Bearer prefs", manifestURL: rewritten, preferencesURL: rewritten)
+        #expect(resolved.header == nil)
+    }
+
+    @Test("A plain http manifest gets no configured header, and a refused header does not fall through to the file")
+    func plainHTTPAndNoFallthrough() {
+        let plain = "http://manifests.example.com/bootstrap/management.json"
+        #expect(resolve(file: { "Bearer file" }, manifestURL: plain).header == nil)
+        let fileRead = Box(false)
+        let refused = resolve(preferences: "Bearer prefs", file: { fileRead.value = true; return "Bearer file" },
+                              manifestURL: "https://attacker.example.net/x.json")
+        #expect(refused.header == nil)
+        #expect(fileRead.value == false)
     }
 
     @Test("The default location is the root-only secrets directory")

@@ -178,6 +178,14 @@ The header comes from the first of these that gives one:
 2. The `headers` managed preference (also `Headers` or `AuthorizationHeader`), when it is not empty.
 3. The file `/Library/Managed Bootstrap/Secrets/AuthorizationHeader`.
 
+The Settings window runs the tool as root through the privileged helper, with a manifest URL any user can type. So a header from the preferences or the file is used only when the run's manifest URL is https on the host the administrator configured:
+
+- The file's header needs a manifest URL forced by a configuration profile (`url` in `com.github.bootstrapmate`), and the run's manifest URL must be on that host. A `url` in `/Library/Preferences` does not count, because the helper writes it for any user. Without a profile-managed URL the file is not used.
+- The preference header needs the run's manifest URL on the host of the profile-managed URL, or, with no profile, of the `url` preference. A `--jsonurl` on another host never inherits it.
+- A header given with `--headers` is the caller's own and is not checked this way.
+
+A header that fails its check is dropped with a warning naming the hosts, never the value, and no lower source is tried.
+
 A configuration profile's preferences can be read by every user on the Mac, so a credential is better kept in the file. It holds the full header value, such as `Bearer <token>` or `Basic <base64>`, and surrounding whitespace is trimmed. It is used only when it is a regular file owned by root with no group or world permissions (mode `0600`), in a directory owned by root with mode `0700`. A file that fails those checks is ignored with a warning. A standard user cannot read it, so the Settings window never shows it.
 
 Create the directory:
