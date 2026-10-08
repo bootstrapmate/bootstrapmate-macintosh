@@ -80,14 +80,16 @@ public final class NetworkManager {
     private init() {}
 
     /// True when `url` is on the same host as `scope`, compared without
-    /// regard to case, over the same scheme. Without a scope nothing matches.
+    /// regard to case, and both are https. A credential never travels over
+    /// plain http, not even to the manifest's host. Without a scope nothing
+    /// matches.
     static func isAuthorizedHost(_ url: URL?, scope: URL?) -> Bool {
         guard let host = url?.host?.lowercased(), !host.isEmpty,
               let scopeHost = scope?.host?.lowercased(),
-              let scheme = url?.scheme?.lowercased(),
-              let scopeScheme = scope?.scheme?.lowercased()
+              url?.scheme?.lowercased() == "https",
+              scope?.scheme?.lowercased() == "https"
         else { return false }
-        return host == scopeHost && scheme == scopeScheme
+        return host == scopeHost
     }
 
     /// The header to send to `url`: the usable header when `url` is on the
@@ -96,7 +98,7 @@ public final class NetworkManager {
     static func header(_ header: String?, for url: URL, scope: URL?) -> String? {
         guard let usable = usableHeader(header) else { return nil }
         guard isAuthorizedHost(url, scope: scope) else {
-            Logger.debug("Authorization header withheld from a host other than the manifest's: \(url.absoluteString)")
+            Logger.debug("Authorization header withheld: \(url.absoluteString) is not https on the manifest's host")
             return nil
         }
         return usable

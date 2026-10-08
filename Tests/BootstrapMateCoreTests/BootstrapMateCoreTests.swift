@@ -2123,6 +2123,18 @@ struct AuthorizationHeaderScopeTests {
         #expect(NetworkManager.header("Bearer abc", for: pkg, scope: manifest) == "Bearer abc")
     }
 
+    @Test("Never sends the header over plain http, even to the manifest's host")
+    func plainHTTP() {
+        let plainManifest = URL(string: "http://manifests.example.com/bootstrap/management.json")!
+        #expect(NetworkManager.header("Bearer abc", for: plainManifest, scope: plainManifest) == nil)
+        let plainPkg = URL(string: "http://manifests.example.com/pkgs/tool.pkg")!
+        #expect(NetworkManager.header("Bearer abc", for: plainPkg, scope: plainManifest) == nil)
+
+        var redirect = URLRequest(url: URL(string: "http://manifests.example.com/other.json")!)
+        redirect.setValue("Bearer abc", forHTTPHeaderField: "Authorization")
+        #expect(RedirectPolicy.scopedRedirect(redirect, authScope: manifest).value(forHTTPHeaderField: "Authorization") == nil)
+    }
+
     @Test("Withholds the header over a different scheme, or with no manifest")
     func schemeAndNoScope() {
         let plain = URL(string: "http://manifests.example.com/pkgs/tool.pkg")!
@@ -2159,12 +2171,12 @@ struct AuthorizationHeaderScopeTests {
         return body.value
     }
 
-    @Test("Over the wire: the manifest host gets the header, a redirect to another host does not")
+    @Test("Over the wire: a plain http manifest, and a redirect from it, get no header")
     func overTheWire() throws {
         let server = try HeaderEchoServer(redirectHost: "localhost")
         defer { server.stop() }
         let base = "http://127.0.0.1:\(server.port)"
-        #expect(fetch(URL(string: "\(base)/echo")!, header: "Bearer abc") == "Bearer abc")
+        #expect(fetch(URL(string: "\(base)/echo")!, header: "Bearer abc") == "none")
         #expect(fetch(URL(string: "\(base)/away")!, header: "Bearer abc") == "none")
     }
 

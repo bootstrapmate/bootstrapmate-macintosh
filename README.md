@@ -170,7 +170,7 @@ Redirects are followed by default, for the manifest and for every item. Set the 
 
 ## Authorization header
 
-A private origin is reached with an `Authorization` header. It is sent only to the manifest's host: to the manifest request, and to a package whose URL has the same host (compared without regard to case) over the same scheme. A package on any other host, such as public blob storage or a vendor CDN, is fetched without it, so the credential never reaches that host, and storage that rejects a foreign `Authorization` header (Azure Blob Storage answers 403) serves the file. A redirect to another host drops the header too. A withheld header is logged at debug level by address, never by value.
+A private origin is reached with an `Authorization` header. It is sent only over https, and only to the manifest's host: to the manifest request, and to a package whose URL has the same host (compared without regard to case). A manifest or package fetched over plain http never gets it, even from the manifest's host. A package on any other host, such as public blob storage or a vendor CDN, is fetched without it, so the credential never reaches that host, and storage that rejects a foreign `Authorization` header (Azure Blob Storage answers 403) serves the file. A redirect to another host, or to plain http, drops the header too. A withheld header is logged at debug level by address, never by value.
 
 The header comes from the first of these that gives one:
 
