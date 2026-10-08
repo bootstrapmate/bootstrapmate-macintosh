@@ -14,6 +14,9 @@ public final class DialogManager {
     // SwiftDialog paths
     private let dialogPath = "/usr/local/bin/dialog"
     private let defaultCommandFile = "/var/tmp/dialog.log"
+    /// The swiftDialog authorisation key, for when a configuration profile
+    /// forces AuthorisationKey and dialog shows nothing to a caller without it.
+    private let authorisationKeyPath = "/Library/Managed Notifications/.authkey"
     
     // State
     private var dialogProcess: Process?
@@ -70,7 +73,7 @@ public final class DialogManager {
             "--button1disabled"
         ]
         
-        if let iconPath = icon {
+        if let iconPath = icon, !iconPath.isEmpty {
             arguments.append(contentsOf: ["--icon", iconPath])
         } else {
             // Use SF Symbol for default icon
@@ -184,6 +187,9 @@ public final class DialogManager {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: dialogPath)
         process.arguments = arguments
+        process.environment = Self.dialogEnvironment(
+            base: ProcessInfo.processInfo.environment,
+            key: Self.authorisationKey(at: authorisationKeyPath))
         
         // Don't capture output - let it run independently
         process.standardOutput = FileHandle.nullDevice
@@ -200,6 +206,28 @@ public final class DialogManager {
         }
     }
     
+    /// The key in `path`, when only a trusted account could have written it.
+    /// The file is read rather than passed along by name, so a key that is
+    /// missing or untrusted leaves dialog to run as it would with no key.
+    static func authorisationKey(at path: String) -> String? {
+        guard FileTrust.isTrustedFile(path),
+              let data = FileManager.default.contents(atPath: path),
+              let text = String(data: data, encoding: .utf8)
+        else { return nil }
+        let key = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return key.isEmpty ? nil : key
+    }
+
+    /// dialog's environment: ours, with the key in DIALOG_AUTH_KEY. The key goes
+    /// in the environment, which only root and the process's own account can
+    /// read, never in the arguments, which every account can see.
+    static func dialogEnvironment(base: [String: String], key: String?) -> [String: String] {
+        var environment = base
+        environment.removeValue(forKey: "DIALOG_AUTH_KEY")
+        if let key { environment["DIALOG_AUTH_KEY"] = key }
+        return environment
+    }
+
     private func writeCommand(_ command: String) {
         guard isAvailable && isRunning else { return }
         // The command file sits in a directory every account can write, so it

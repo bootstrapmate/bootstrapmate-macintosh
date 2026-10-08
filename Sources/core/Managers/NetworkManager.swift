@@ -67,6 +67,14 @@ public final class NetworkManager {
         return URLSession(configuration: config)
     }()
 
+    /// The header to send, or nil when there is none. An empty value is what a
+    /// profile sets to manage the field without giving a header, and an empty
+    /// Authorization header is an error to most servers, blob storage included.
+    static func usableHeader(_ header: String?) -> String? {
+        guard let header, !header.trimmingCharacters(in: .whitespaces).isEmpty else { return nil }
+        return header
+    }
+
     public func downloadData(
         from url: URL,
         followRedirects: Bool,
@@ -74,7 +82,7 @@ public final class NetworkManager {
         completion: @escaping @Sendable (Data?, Error?) -> Void
     ) {
         var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalAndRemoteCacheData)
-        if let header = authHeader {
+        if let header = Self.usableHeader(authHeader) {
             request.addValue(header, forHTTPHeaderField: "Authorization")
         }
         let task = Self.noCacheSession.dataTask(with: request) { data, response, error in
@@ -106,7 +114,7 @@ public final class NetworkManager {
             return
         }
         var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalAndRemoteCacheData)
-        if let header = authHeader ?? authorizationHeader {
+        if let header = Self.usableHeader(authHeader) ?? Self.usableHeader(authorizationHeader) {
             request.addValue(header, forHTTPHeaderField: "Authorization")
         }
 
