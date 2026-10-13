@@ -136,31 +136,38 @@ final class XPCClient: NSObject {
 
     // MARK: - Preference Management
 
-    func setStringPreference(key: String, value: String) {
-        connect()
-        helperProxy { proxy in
-            proxy.setPreference(key: key, stringValue: value, domain: BootstrapMateConstants.daemonIdentifier) { _ in }
+    /// Performs one preference write with an administrator's authorization and
+    /// returns whether the helper accepted it.
+    func perform(_ write: BootstrapPreferenceWrite, authorization: Data) async -> Bool {
+        let domain = BootstrapMateConstants.daemonIdentifier
+        return await callHelper { proxy, reply in
+            switch write {
+            case .string(let key, let value):
+                proxy.setPreference(key: key, stringValue: value, domain: domain, authorization: authorization, withReply: reply)
+            case .bool(let key, let value):
+                proxy.setBoolPreference(key: key, boolValue: value, domain: domain, authorization: authorization, withReply: reply)
+            case .int(let key, let value):
+                proxy.setIntPreference(key: key, intValue: value, domain: domain, authorization: authorization, withReply: reply)
+            case .remove(let key):
+                proxy.removePreference(key: key, domain: domain, authorization: authorization, withReply: reply)
+            }
         }
     }
 
-    func setBoolPreference(key: String, value: Bool) {
+    /// Calls the helper and waits for its reply; a refused or broken connection
+    /// counts as a failed write rather than leaving the caller waiting.
+    private func callHelper(
+        _ body: @escaping @Sendable (HelperXPCProtocol, @escaping @Sendable (Bool) -> Void) -> Void
+    ) async -> Bool {
         connect()
-        helperProxy { proxy in
-            proxy.setBoolPreference(key: key, boolValue: value, domain: BootstrapMateConstants.daemonIdentifier) { _ in }
-        }
-    }
-
-    func setIntPreference(key: String, value: Int) {
-        connect()
-        helperProxy { proxy in
-            proxy.setIntPreference(key: key, intValue: value, domain: BootstrapMateConstants.daemonIdentifier) { _ in }
-        }
-    }
-
-    func removePreference(key: String) {
-        connect()
-        helperProxy { proxy in
-            proxy.removePreference(key: key, domain: BootstrapMateConstants.daemonIdentifier) { _ in }
+        guard let conn = connection else { return false }
+        return await withCheckedContinuation { continuation in
+            let once = ResumeOnce(continuation)
+            guard let proxy = conn.remoteObjectProxyWithErrorHandler({ _ in once.resume(false) }) as? HelperXPCProtocol else {
+                once.resume(false)
+                return
+            }
+            body(proxy) { ok in once.resume(ok) }
         }
     }
 
@@ -213,6 +220,25 @@ final class XPCClient: NSObject {
             return
         }
         block(proxy)
+    }
+}
+
+/// Resumes a continuation exactly once, whichever of the reply or the
+/// connection error arrives first.
+private final class ResumeOnce: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<Bool, Never>?
+
+    init(_ continuation: CheckedContinuation<Bool, Never>) {
+        self.continuation = continuation
+    }
+
+    func resume(_ value: Bool) {
+        lock.lock()
+        let pending = continuation
+        continuation = nil
+        lock.unlock()
+        pending?.resume(returning: value)
     }
 }
 

@@ -7,6 +7,7 @@
 //
 
 import Foundation
+import Security
 import BootstrapMateCore
 
 final class HelperCommandRunner: NSObject, HelperXPCProtocol, @unchecked Sendable {
@@ -85,25 +86,60 @@ final class HelperCommandRunner: NSObject, HelperXPCProtocol, @unchecked Sendabl
         }
     }
 
-    func setPreference(key: String, stringValue: String, domain: String, withReply reply: @escaping (Bool) -> Void) {
-        reply(writePreference(key: key, value: stringValue as CFString, kind: .string, domain: domain))
+    // MARK: - Authorization
+
+    /// True when `externalForm` is an authorization reference that already
+    /// holds the admin right. The helper never prompts: the app asked an
+    /// administrator when the user clicked Save, and this only confirms the
+    /// credential it was given.
+    static func isAdminAuthorized(_ externalForm: Data) -> Bool {
+        guard externalForm.count == MemoryLayout<AuthorizationExternalForm>.size else { return false }
+        var form = AuthorizationExternalForm()
+        withUnsafeMutableBytes(of: &form) { buffer in
+            _ = externalForm.copyBytes(to: buffer)
+        }
+        var authRef: AuthorizationRef?
+        guard AuthorizationCreateFromExternalForm(&form, &authRef) == errAuthorizationSuccess, let authRef else {
+            return false
+        }
+        defer { AuthorizationFree(authRef, []) }
+
+        return kHelperAdminRight.withCString { name in
+            var item = AuthorizationItem(name: name, valueLength: 0, value: nil, flags: 0)
+            return withUnsafeMutablePointer(to: &item) { itemPointer in
+                var rights = AuthorizationRights(count: 1, items: itemPointer)
+                let status = AuthorizationCopyRights(authRef, &rights, nil, [.extendRights], nil)
+                return status == errAuthorizationSuccess
+            }
+        }
     }
 
-    func setBoolPreference(key: String, boolValue: Bool, domain: String, withReply reply: @escaping (Bool) -> Void) {
-        reply(writePreference(key: key, value: boolValue as CFPropertyList, kind: .bool, domain: domain))
+    // MARK: - Preferences
+
+    func setPreference(key: String, stringValue: String, domain: String, authorization: Data, withReply reply: @escaping (Bool) -> Void) {
+        reply(writePreference(key: key, value: stringValue as CFString, kind: .string, domain: domain, authorization: authorization))
     }
 
-    func setIntPreference(key: String, intValue: Int, domain: String, withReply reply: @escaping (Bool) -> Void) {
-        reply(writePreference(key: key, value: intValue as CFNumber as CFPropertyList, kind: .int, domain: domain))
+    func setBoolPreference(key: String, boolValue: Bool, domain: String, authorization: Data, withReply reply: @escaping (Bool) -> Void) {
+        reply(writePreference(key: key, value: boolValue as CFPropertyList, kind: .bool, domain: domain, authorization: authorization))
     }
 
-    func removePreference(key: String, domain: String, withReply reply: @escaping (Bool) -> Void) {
-        reply(writePreference(key: key, value: nil, kind: nil, domain: domain))
+    func setIntPreference(key: String, intValue: Int, domain: String, authorization: Data, withReply reply: @escaping (Bool) -> Void) {
+        reply(writePreference(key: key, value: intValue as CFNumber as CFPropertyList, kind: .int, domain: domain, authorization: authorization))
     }
 
-    /// Writes one machine-level preference after the policy accepts it. Values go to
-    /// /Library/Preferences (any user, any host), which is where the runner reads them.
-    private func writePreference(key: String, value: CFPropertyList?, kind: HelperPreferencePolicy.ValueKind?, domain: String) -> Bool {
+    func removePreference(key: String, domain: String, authorization: Data, withReply reply: @escaping (Bool) -> Void) {
+        reply(writePreference(key: key, value: nil, kind: nil, domain: domain, authorization: authorization))
+    }
+
+    /// Writes one machine-level preference after the policy accepts it and an
+    /// administrator has authorized the change. Values go to /Library/Preferences
+    /// (any user, any host), which is where the runner reads them.
+    private func writePreference(key: String, value: CFPropertyList?, kind: HelperPreferencePolicy.ValueKind?, domain: String, authorization: Data) -> Bool {
+        guard Self.isAdminAuthorized(authorization) else {
+            NSLog("BootstrapMate helper refused preference write for %@: no administrator authorization", key)
+            return false
+        }
         let decision = HelperPreferencePolicy.evaluate(
             domain: domain,
             key: key,

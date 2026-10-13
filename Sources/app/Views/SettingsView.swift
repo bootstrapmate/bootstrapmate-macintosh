@@ -4,7 +4,10 @@
 //
 //  Main tab with centered app info header and settings below. Settings a
 //  profile manages are disabled (gray); one banner under the header explains
-//  why, instead of a caption on every field.
+//  why, instead of a caption on every field. Only MDM changes those, so the
+//  window offers nothing for them. Every other setting is editable, and Save
+//  asks for an administrator before the helper writes it. When a profile
+//  manages every setting the window is simply read-only, with no Save.
 //
 
 import SwiftUI
@@ -57,12 +60,8 @@ struct SettingsView: View {
                     ]
                 )
 
-                // Auto-save status
-                HStack {
-                    Spacer()
-                    saveStatusLabel
-                }
-                .padding(.top, 4)
+                saveBar
+                    .padding(.top, 4)
             }
             .padding()
         }
@@ -100,7 +99,32 @@ struct SettingsView: View {
         .padding(.top, 8)
     }
 
-    // MARK: - Auto-Save Status
+    // MARK: - Save
+
+    @ViewBuilder
+    private var saveBar: some View {
+        HStack(spacing: 12) {
+            Spacer()
+            saveStatusLabel
+            if !viewModel.allSettingsManaged {
+                Button("Revert") {
+                    viewModel.revert()
+                }
+                .disabled(!viewModel.hasUnsavedChanges || viewModel.saveStatus == .saving)
+                .help("Discard your changes and show the saved settings")
+
+                Button("Save") {
+                    Task { await viewModel.save() }
+                }
+                .keyboardShortcut("s", modifiers: .command)
+                .buttonStyle(.borderedProminent)
+                .disabled(!viewModel.hasUnsavedChanges || viewModel.saveStatus == .saving)
+                .help("An administrator name and password is needed to save")
+            }
+        }
+    }
+
+    // MARK: - Save Status
 
     @ViewBuilder
     private var saveStatusLabel: some View {

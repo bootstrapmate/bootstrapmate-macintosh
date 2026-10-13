@@ -124,7 +124,8 @@ struct RunView: View {
     // MARK: - Actions
 
     private func startRun() {
-        viewModel.save(using: xpcClient)
+        // The run takes the window's values as arguments, so unsaved edits
+        // apply to this run without changing the machine's settings.
         let arguments = viewModel.buildRunArguments()
         xpcClient.runBootstrap(additionalArguments: arguments)
     }

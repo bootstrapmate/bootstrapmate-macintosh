@@ -2053,3 +2053,78 @@ struct DialogAuthorisationKeyTests {
         #expect(NetworkManager.usableHeader("Basic abc") == "Basic abc")
     }
 }
+
+// MARK: - Prefs edits and explicit Save
+
+@Suite("Prefs edits")
+struct BootstrapPreferenceEditsTests {
+    let notManaged: (String) -> Bool = { _ in false }
+
+    @Test("No edits means nothing to save")
+    func unchangedHasNoWrites() {
+        let saved = BootstrapPreferenceSnapshot()
+        #expect(BootstrapPreferenceEdits.writes(from: saved, to: saved, isManaged: notManaged).isEmpty)
+    }
+
+    @Test("Only changed keys are written, and an emptied string is removed")
+    func changedKeysOnly() {
+        let saved = BootstrapPreferenceSnapshot()
+        var edited = saved
+        edited.reboot = true
+        edited.networkTimeout = 300
+        edited.dialogTitle = ""
+        let writes = BootstrapPreferenceEdits.writes(from: saved, to: edited, isManaged: notManaged)
+        #expect(writes == [.bool("reboot", true), .remove("dialogTitle"), .int("networkTimeout", 300)])
+    }
+
+    @Test("A key a profile manages is never written")
+    func skipsManagedKeys() {
+        let saved = BootstrapPreferenceSnapshot()
+        var edited = saved
+        edited.url = "https://example.invalid/m.json"
+        edited.headers = "Bearer x"
+        edited.reboot = true
+        let managed: (String) -> Bool = { ["url", "headers"].contains($0) }
+        #expect(BootstrapPreferenceEdits.writes(from: saved, to: edited, isManaged: managed) == [.bool("reboot", true)])
+    }
+
+    @Test("A typed authorization header is written; an empty one leaves the stored header alone")
+    func headerSemantics() {
+        let saved = BootstrapPreferenceSnapshot()
+        var edited = saved
+        #expect(BootstrapPreferenceEdits.writes(from: saved, to: edited, isManaged: notManaged).isEmpty)
+        edited.headers = "Bearer x"
+        #expect(BootstrapPreferenceEdits.writes(from: saved, to: edited, isManaged: notManaged) == [.string("headers", "Bearer x")])
+    }
+
+    @Test("Recording every successful write leaves nothing unsaved")
+    func recordClearsPending() {
+        var saved = BootstrapPreferenceSnapshot()
+        var edited = saved
+        edited.url = "https://example.invalid/m.json"
+        edited.blurScreen = true
+        edited.dialogIcon = "gearshape"
+        for write in BootstrapPreferenceEdits.writes(from: saved, to: edited, isManaged: notManaged) {
+            BootstrapPreferenceEdits.record(write, into: &saved)
+        }
+        #expect(saved == edited)
+        #expect(BootstrapPreferenceEdits.writes(from: saved, to: edited, isManaged: notManaged).isEmpty)
+    }
+
+    @Test("A failed write stays pending, and reverting to the saved values clears it")
+    func failedWriteStaysPending() {
+        let saved = BootstrapPreferenceSnapshot()
+        var edited = saved
+        edited.reboot = true
+        edited.dryRun = true
+        var applied = saved
+        BootstrapPreferenceEdits.record(.bool("reboot", true), into: &applied)
+        #expect(BootstrapPreferenceEdits.writes(from: applied, to: edited, isManaged: notManaged) == [.bool("dryRun", true)])
+        #expect(BootstrapPreferenceEdits.writes(from: applied, to: applied, isManaged: notManaged).isEmpty)
+    }
+
+    @Test("The helper's admin right is the system administrator right")
+    func adminRight() {
+        #expect(kHelperAdminRight == "system.privilege.admin")
+    }
+}

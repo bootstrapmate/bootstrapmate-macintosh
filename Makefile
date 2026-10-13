@@ -38,10 +38,18 @@ ICON_NAME = BootstrapMate
 ACTOOL_OUT = $(BUILD_DIR)/actool-out
 
 # Swift Build Configuration
-SWIFT_BUILD_DIR = .build/apple/Products/Release
+# The output path differs between toolchains, so ask SwiftPM for it.
+SWIFT_BUILD_DIR = $(shell swift build -c release --arch arm64 --arch x86_64 --show-bin-path)
 SWIFT_BINARY = $(SWIFT_BUILD_DIR)/bootstrapmate
 SWIFT_GUI_BINARY = $(SWIFT_BUILD_DIR)/BootstrapMateApp
 SWIFT_HELPER_BINARY = $(SWIFT_BUILD_DIR)/BootstrapMateHelper
+
+# Record the SDK the binaries are linked against. SwiftPM writes the deployment
+# target as the SDK version, and AppKit then keeps the pre-macOS 26 window
+# chrome (a title bar plus a small tab strip) instead of the toolbar tabs. The
+# version is stamped with vtool before the binaries are signed.
+SDK_VERSION := $(shell xcrun --show-sdk-version)
+DEPLOYMENT_TARGET = 14.0
 
 # Package Configuration
 PKG_ID = com.github.bootstrapmate
@@ -132,6 +140,11 @@ swift-build:
 copy-binary: swift-build
 	@echo "$(BLUE)Signing and copying binaries to app bundle...$(NC)"
 	@mkdir -p "$(APP_MACOS_DIR)"
+
+	# Stamp the real SDK version into each binary before it is signed
+	@for bin in $(SWIFT_BINARY) $(SWIFT_GUI_BINARY) $(SWIFT_HELPER_BINARY); do \
+		vtool -set-build-version macos $(DEPLOYMENT_TARGET) $(SDK_VERSION) -replace -output "$$bin.stamped" "$$bin" && mv "$$bin.stamped" "$$bin" || exit 1; \
+	done
 	
 	# Sign the CLI binary with hardened runtime before packaging
 	@codesign --force --sign "$(SIGNING_IDENTITY_APP)" \
