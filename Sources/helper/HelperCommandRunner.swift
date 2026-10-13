@@ -33,8 +33,17 @@ final class HelperCommandRunner: NSObject, HelperXPCProtocol, @unchecked Sendabl
 
     // MARK: - HelperXPCProtocol
 
-    func runBootstrap(arguments: [String]) {
+    func runBootstrap(arguments: [String], authorization: Data) {
         let clientProxy = connection.remoteObjectProxy as? HelperXPCClientProtocol
+
+        // Arguments that differ from the machine's saved settings need an
+        // administrator, decided here from the arguments themselves.
+        if HelperRunPolicy.requiresAdmin(arguments) && !Self.isAdminAuthorized(authorization) {
+            NSLog("BootstrapMate helper refused a run with custom arguments: no administrator authorization")
+            clientProxy?.didEncounterError("A run with settings that are not saved needs an administrator. Save the settings, or authenticate as an administrator when Run asks.")
+            clientProxy?.runDidComplete(success: false, exitCode: -1)
+            return
+        }
 
         let task = Process()
         task.executableURL = Self.cliURL

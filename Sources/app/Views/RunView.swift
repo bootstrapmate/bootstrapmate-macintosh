@@ -124,10 +124,15 @@ struct RunView: View {
     // MARK: - Actions
 
     private func startRun() {
-        // The run takes the window's values as arguments, so unsaved edits
-        // apply to this run without changing the machine's settings.
-        let arguments = viewModel.buildRunArguments()
-        xpcClient.runBootstrap(additionalArguments: arguments)
+        // With nothing unsaved the runner reads the machine's settings, so
+        // any user can run. Unsaved edits go to this run as arguments, and
+        // only with an administrator's authorization; the machine's
+        // settings stay as they are.
+        if viewModel.hasUnsavedChanges {
+            xpcClient.runBootstrap(additionalArguments: viewModel.buildRunArguments(), needsAdmin: true)
+        } else {
+            xpcClient.runBootstrap()
+        }
     }
 
     private func clearOutput() {

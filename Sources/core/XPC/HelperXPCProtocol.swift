@@ -21,8 +21,10 @@ public let kHelperAdminRight = "system.privilege.admin"
 /// XPC proxies are thread-safe by design; Sendable conformance is safe.
 @objc public protocol HelperXPCProtocol: Sendable {
     /// Launch the CLI binary with the given arguments.
-    /// Output is streamed back via the client protocol.
-    func runBootstrap(arguments: [String])
+    /// Output is streamed back via the client protocol. Arguments beyond
+    /// `HelperRunPolicy.harmlessArguments` need `authorization` to hold
+    /// `kHelperAdminRight`; without it the helper refuses the run.
+    func runBootstrap(arguments: [String], authorization: Data)
 
     /// Stop the currently running bootstrap process.
     func stopBootstrap()

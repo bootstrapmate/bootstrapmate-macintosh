@@ -20,6 +20,9 @@ final class XPCClient: NSObject {
     var connectionError: String?
 
     private var connection: NSXPCConnection?
+    /// The administrator authorization a run with unsaved settings holds,
+    /// freed when the run ends, is stopped or loses the helper.
+    private var runAuthorization: AdminAuthorization?
 
     struct OutputLine: Identifiable {
         let id = UUID()
@@ -104,8 +107,17 @@ final class XPCClient: NSObject {
 
     // MARK: - Running Bootstrap
 
-    func runBootstrap(additionalArguments: [String] = []) {
+    /// Starts a run. With `needsAdmin` the arguments carry settings the
+    /// machine has not saved, so an administrator authenticates first and
+    /// the helper checks that authorization; cancelling starts nothing.
+    func runBootstrap(additionalArguments: [String] = [], needsAdmin: Bool = false) {
         guard !isRunning else { return }
+        var authorization = Data()
+        if needsAdmin {
+            guard let admin = AdminAuthorization.authorize() else { return }
+            runAuthorization = admin
+            authorization = admin.externalForm
+        }
 
         isRunning = true
         lastExitCode = nil
@@ -119,7 +131,7 @@ final class XPCClient: NSObject {
         connect()
 
         helperProxy { proxy in
-            proxy.runBootstrap(arguments: arguments)
+            proxy.runBootstrap(arguments: arguments, authorization: authorization)
         }
     }
 
@@ -131,6 +143,7 @@ final class XPCClient: NSObject {
         }
         isRunning = false
         lastExitCode = nil
+        releaseRunAuthorization()
         outputLines.append(OutputLine(text: "[WARNING] Bootstrap process stopped by user.", level: .warning))
     }
 
@@ -202,8 +215,14 @@ final class XPCClient: NSObject {
 
     /// A failed connection during a run must show up in the run output; setting
     /// connectionError alone left the window blank with nothing explaining why.
+    private func releaseRunAuthorization() {
+        runAuthorization?.free()
+        runAuthorization = nil
+    }
+
     private func reportConnectionFailure(_ message: String) {
         connectionError = message
+        releaseRunAuthorization()
         if isRunning {
             outputLines.append(OutputLine(text: "ERROR: \(message). The helper refused the connection or is not running; see the system log for com.github.bootstrapmate.helper.", level: .error))
             isRunning = false
@@ -257,6 +276,7 @@ extension XPCClient: HelperXPCClientProtocol {
         Task { @MainActor in
             isRunning = false
             lastExitCode = exitCode
+            releaseRunAuthorization()
         }
     }
 
