@@ -18,6 +18,14 @@ struct SettingsView: View {
     @Environment(XPCClient.self) private var xpcClient
     @State private var showManifestPreview = false
 
+    /// Bound to the first text field so the window opens with nothing
+    /// focused instead of AppKit picking the first control and drawing a ring.
+    @FocusState private var focusedField: Field?
+
+    private enum Field: Hashable {
+        case jsonUrl
+    }
+
     private var marketingVersion: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "–"
     }
@@ -65,9 +73,11 @@ struct SettingsView: View {
             }
             .padding()
         }
+        .defaultFocus($focusedField, nil)
         .onAppear {
             viewModel.configure(client: xpcClient)
             viewModel.load()
+            DispatchQueue.main.async { focusedField = nil }
         }
     }
 
@@ -89,12 +99,6 @@ struct SettingsView: View {
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
 
-            HStack(spacing: 16) {
-                Link("Documentation", destination: URL(string: "https://github.com/bootstrapmate/bootstrapmate-macintosh/wiki")!)
-                    .font(.caption)
-                Link("Report Issue", destination: URL(string: "https://github.com/bootstrapmate/bootstrapmate-macintosh/issues")!)
-                    .font(.caption)
-            }
         }
         .padding(.top, 8)
     }
@@ -104,6 +108,16 @@ struct SettingsView: View {
     @ViewBuilder
     private var saveBar: some View {
         HStack(spacing: 12) {
+            Text("v\(marketingVersion) (\(buildNumber))")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .textSelection(.enabled)
+
+            Link("Documentation", destination: URL(string: "https://github.com/bootstrapmate/bootstrapmate-macintosh/wiki")!)
+                .font(.caption)
+            Link("Report Issue", destination: URL(string: "https://github.com/bootstrapmate/bootstrapmate-macintosh/issues")!)
+                .font(.caption)
+
             Spacer()
             saveStatusLabel
             if !viewModel.allSettingsManaged {
@@ -156,6 +170,7 @@ struct SettingsView: View {
                     HStack(spacing: 6) {
                         TextField("https://example.com/manifest.json", text: $viewModel.jsonUrl)
                             .textFieldStyle(.roundedBorder)
+                            .focused($focusedField, equals: .jsonUrl)
                         Button {
                             viewModel.fetchManifestPreview()
                             showManifestPreview = true
