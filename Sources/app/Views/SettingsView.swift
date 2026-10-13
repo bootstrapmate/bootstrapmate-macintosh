@@ -2,8 +2,9 @@
 //  SettingsView.swift
 //  BootstrapMate
 //
-//  Main tab with centered app info header and settings below.
-//  Managed settings display a lock icon and are disabled.
+//  Main tab with centered app info header and settings below. Settings a
+//  profile manages are disabled (gray); one banner under the header explains
+//  why, instead of a caption on every field.
 //
 
 import SwiftUI
@@ -25,21 +26,36 @@ struct SettingsView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 16) {
-                // App info header
                 appInfoHeader
+
+                if viewModel.hasManagedSettings {
+                    ProfileManagedBanner()
+                }
 
                 Divider()
 
-                // Settings in 2x2 grid
-                HStack(alignment: .top, spacing: 20) {
-                    connectionSection
-                    behaviorSection
+                // Two even columns, the same split on every row.
+                Grid(alignment: .topLeading, horizontalSpacing: 20, verticalSpacing: 16) {
+                    GridRow {
+                        connectionSection
+                            .frame(maxWidth: .infinity, alignment: .top)
+                        behaviorSection
+                            .frame(maxWidth: .infinity, alignment: .top)
+                    }
+                    GridRow {
+                        dialogSection
+                            .frame(maxWidth: .infinity, alignment: .top)
+                        advancedSection
+                            .frame(maxWidth: .infinity, alignment: .top)
+                    }
                 }
 
-                HStack(alignment: .top, spacing: 20) {
-                    dialogSection
-                    advancedSection
-                }
+                ServicesSection(
+                    prefixes: ["com.github.bootstrapmate"],
+                    extraDaemonDirectories: [
+                        Bundle.main.bundleURL.appendingPathComponent("Contents/Library/LaunchDaemons").path
+                    ]
+                )
 
                 // Auto-save status
                 HStack {
@@ -145,6 +161,7 @@ struct SettingsView: View {
                 }
             }
             .padding(.vertical, 8)
+            .frame(maxWidth: .infinity, alignment: .leading)
         } label: {
             Label("Connection", systemImage: "network")
                 .font(.headline)
@@ -211,6 +228,7 @@ struct SettingsView: View {
                 }
             }
             .padding(.vertical, 8)
+            .frame(maxWidth: .infinity, alignment: .leading)
         } label: {
             Label("Dialog", systemImage: "text.bubble")
                 .font(.headline)
@@ -238,6 +256,7 @@ struct SettingsView: View {
                 }
             }
             .padding(.vertical, 8)
+            .frame(maxWidth: .infinity, alignment: .leading)
         } label: {
             Label("Advanced", systemImage: "wrench.and.screwdriver")
                 .font(.headline)
@@ -306,11 +325,6 @@ struct SettingsView: View {
             }
             content()
                 .disabled(managed)
-            if managed {
-                Label("Managed", systemImage: "lock.fill")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
         }
     }
 }
