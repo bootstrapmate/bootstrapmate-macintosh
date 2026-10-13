@@ -15,9 +15,11 @@ public enum HelperPreferencePolicy {
     public static let domain = BootstrapMateConstants.daemonIdentifier
 
     /// The keys the Prefs window saves, and the type each one takes.
+    ///
+    /// `headers` is deliberately absent: the authorization header is a secret
+    /// that only a configuration profile sets, so the helper refuses to write it.
     public static let allowedKeys: [String: ValueKind] = [
         "url": .string,
-        "headers": .string,
         "followRedirects": .bool,
         "reboot": .bool,
         "silentMode": .bool,

@@ -2,11 +2,10 @@ import Foundation
 
 /// The settings the Prefs window edits, as it holds them.
 ///
-/// `headers` is the newly typed authorization header only. The stored header is
-/// never read back into the window, so an empty value means "leave it as it is".
+/// The authorization header is not here: the window shows only whether one is
+/// set and never reads, edits or saves its value.
 public struct BootstrapPreferenceSnapshot: Equatable, Sendable {
     public var url = ""
-    public var headers = ""
     public var followRedirects = true
     public var reboot = false
     public var silentMode = false
@@ -64,9 +63,6 @@ public enum BootstrapPreferenceEdits {
         }
 
         string("url", saved.url, current.url)
-        if !current.headers.isEmpty, !isManaged("headers") {
-            writes.append(.string("headers", current.headers))
-        }
         bool("followRedirects", saved.followRedirects, current.followRedirects)
         bool("reboot", saved.reboot, current.reboot)
         bool("silentMode", saved.silentMode, current.silentMode)
