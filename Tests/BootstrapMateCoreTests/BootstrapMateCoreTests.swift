@@ -2082,19 +2082,16 @@ struct BootstrapPreferenceEditsTests {
         let saved = BootstrapPreferenceSnapshot()
         var edited = saved
         edited.url = "https://example.invalid/m.json"
-        edited.headers = "Bearer x"
         edited.reboot = true
-        let managed: (String) -> Bool = { ["url", "headers"].contains($0) }
+        let managed: (String) -> Bool = { ["url"].contains($0) }
         #expect(BootstrapPreferenceEdits.writes(from: saved, to: edited, isManaged: managed) == [.bool("reboot", true)])
     }
 
-    @Test("A typed authorization header is written; an empty one leaves the stored header alone")
-    func headerSemantics() {
-        let saved = BootstrapPreferenceSnapshot()
-        var edited = saved
-        #expect(BootstrapPreferenceEdits.writes(from: saved, to: edited, isManaged: notManaged).isEmpty)
-        edited.headers = "Bearer x"
-        #expect(BootstrapPreferenceEdits.writes(from: saved, to: edited, isManaged: notManaged) == [.string("headers", "Bearer x")])
+    @Test("The helper refuses to write the authorization header")
+    func helperRefusesHeader() {
+        let notForced: (String) -> Bool = { _ in false }
+        #expect(HelperPreferencePolicy.evaluate(domain: "com.github.bootstrapmate", key: "headers", kind: .string, isForced: notForced) == .unknownKey)
+        #expect(HelperPreferencePolicy.evaluate(domain: "com.github.bootstrapmate", key: "headers", kind: nil, isForced: notForced) == .unknownKey)
     }
 
     @Test("Recording every successful write leaves nothing unsaved")

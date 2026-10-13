@@ -28,8 +28,6 @@ final class SettingsViewModel {
 
     // Connection
     var jsonUrl: String = ""
-    var authorizationHeader: String = ""
-    var hasExistingAuth: Bool = false
     var followRedirects: Bool = true
 
     // Behavior
@@ -49,6 +47,13 @@ final class SettingsViewModel {
     // Advanced
     var retainCache: Bool = true
     var networkTimeout: Int = 120
+
+    /// Whether an authorization header is stored. Its value is never read into
+    /// the window, and the window cannot change it.
+    enum SecretState: Equatable {
+        case notSet, set, managed
+    }
+    private(set) var authorizationHeaderState: SecretState = .notSet
 
     // MARK: - Save Status
 
@@ -78,15 +83,8 @@ final class SettingsViewModel {
             return
         }
 
-        // Use newly entered header first; fall back to the stored one if present
-        let authHeader: String?
-        if !authorizationHeader.isEmpty {
-            authHeader = authorizationHeader
-        } else if hasExistingAuth {
-            authHeader = ConfigManager.shared.config.authorizationHeader
-        } else {
-            authHeader = nil
-        }
+        // The stored header goes straight to the request; it never enters the window.
+        let authHeader = ConfigManager.shared.config.authorizationHeader
 
         manifestPreviewState = .loading
 
@@ -139,8 +137,13 @@ final class SettingsViewModel {
         managedKeys = detector.allManagedKeys()
 
         jsonUrl = config.jsonUrl ?? ""
-        hasExistingAuth = !(config.authorizationHeader ?? "").isEmpty
-        authorizationHeader = ""
+        if (config.authorizationHeader ?? "").isEmpty {
+            authorizationHeaderState = .notSet
+        } else if isManaged("authorizationHeader") {
+            authorizationHeaderState = .managed
+        } else {
+            authorizationHeaderState = .set
+        }
         followRedirects = config.followRedirects
         reboot = config.reboot
         silentMode = config.silentMode
@@ -155,7 +158,6 @@ final class SettingsViewModel {
         retainCache = config.retainCache
         networkTimeout = config.networkTimeout
         saved = current
-        saved.headers = ""
     }
 
     // MARK: - Saving
@@ -164,7 +166,6 @@ final class SettingsViewModel {
     var current: BootstrapPreferenceSnapshot {
         var snapshot = BootstrapPreferenceSnapshot()
         snapshot.url = jsonUrl.trimmingCharacters(in: .whitespacesAndNewlines)
-        snapshot.headers = authorizationHeader
         snapshot.followRedirects = followRedirects
         snapshot.reboot = reboot
         snapshot.silentMode = silentMode
@@ -197,7 +198,6 @@ final class SettingsViewModel {
     /// Puts every field back to the values the machine holds.
     func revert() {
         apply(saved)
-        authorizationHeader = ""
         if case .failed = saveStatus { saveStatus = .idle }
     }
 
@@ -216,12 +216,7 @@ final class SettingsViewModel {
         var failed: [String] = []
         for write in pending {
             if await client.perform(write, authorization: admin.externalForm) {
-                if write.key == "headers" {
-                    authorizationHeader = ""
-                    hasExistingAuth = true
-                } else {
-                    BootstrapPreferenceEdits.record(write, into: &applied)
-                }
+                BootstrapPreferenceEdits.record(write, into: &applied)
             } else {
                 failed.append(write.key)
             }
@@ -258,7 +253,6 @@ final class SettingsViewModel {
     func buildRunArguments() -> [String] {
         var args: [String] = []
         if !jsonUrl.isEmpty { args.append(contentsOf: ["--jsonurl", jsonUrl]) }
-        if !authorizationHeader.isEmpty { args.append(contentsOf: ["--headers", authorizationHeader]) }
         if !followRedirects { args.append("--no-follow-redirects") }
         if dryRun { args.append("--dry-run") }
         if reboot { args.append("--reboot") }

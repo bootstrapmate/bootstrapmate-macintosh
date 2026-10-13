@@ -188,11 +188,25 @@ struct SettingsView: View {
                 }
 
                 settingRow("authorizationHeader", label: "Authorization Header") {
-                    SecureField(
-                        viewModel.hasExistingAuth ? "Token saved — enter new to replace" : "Bearer token or Basic auth",
-                        text: $viewModel.authorizationHeader
-                    )
-                    .textFieldStyle(.roundedBorder)
+                    VStack(alignment: .leading, spacing: 2) {
+                        HStack(spacing: 6) {
+                            switch viewModel.authorizationHeaderState {
+                            case .managed:
+                                Text("Set by profile")
+                                Label("Managed", systemImage: "lock.fill")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            case .set:
+                                Text("Set")
+                            case .notSet:
+                                Text("Not set")
+                            }
+                        }
+                        Text("Set with the headers key in a configuration profile.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .accessibilityElement(children: .combine)
                 }
 
                 settingRow("followRedirects") {
