@@ -11,28 +11,39 @@ import Foundation
 /// Mach service name for the privileged helper
 public let kHelperMachServiceName = "com.github.bootstrapmate.helper"
 
+/// The authorization right an administrator must hold before the helper
+/// writes a machine setting. The app asks for it when the user clicks Save;
+/// the helper only confirms the credential it is handed and never prompts.
+public let kHelperAdminRight = "system.privilege.admin"
+
 /// Protocol exposed by the privileged helper daemon.
 /// All methods run with root privileges.
 /// XPC proxies are thread-safe by design; Sendable conformance is safe.
 @objc public protocol HelperXPCProtocol: Sendable {
     /// Launch the CLI binary with the given arguments.
-    /// Output is streamed back via the client protocol.
-    func runBootstrap(arguments: [String])
+    /// Output is streamed back via the client protocol. Arguments beyond
+    /// `HelperRunPolicy.harmlessArguments` need `authorization` to hold
+    /// `kHelperAdminRight`; without it the helper refuses the run.
+    func runBootstrap(arguments: [String], authorization: Data)
 
     /// Stop the currently running bootstrap process.
     func stopBootstrap()
 
+    /// Every preference write and removal carries `authorization`, an
+    /// AuthorizationExternalForm that already holds `kHelperAdminRight`.
+    /// Without it the helper refuses the write.
+
     /// Write a preference value at system level (kCFPreferencesAnyUser).
-    func setPreference(key: String, stringValue: String, domain: String, withReply reply: @escaping (Bool) -> Void)
+    func setPreference(key: String, stringValue: String, domain: String, authorization: Data, withReply reply: @escaping (Bool) -> Void)
 
     /// Write a boolean preference value at system level.
-    func setBoolPreference(key: String, boolValue: Bool, domain: String, withReply reply: @escaping (Bool) -> Void)
+    func setBoolPreference(key: String, boolValue: Bool, domain: String, authorization: Data, withReply reply: @escaping (Bool) -> Void)
 
     /// Write an integer preference value at system level.
-    func setIntPreference(key: String, intValue: Int, domain: String, withReply reply: @escaping (Bool) -> Void)
+    func setIntPreference(key: String, intValue: Int, domain: String, authorization: Data, withReply reply: @escaping (Bool) -> Void)
 
     /// Remove a preference key at system level.
-    func removePreference(key: String, domain: String, withReply reply: @escaping (Bool) -> Void)
+    func removePreference(key: String, domain: String, authorization: Data, withReply reply: @escaping (Bool) -> Void)
 
     /// Return the helper's version string for version-mismatch detection.
     func getHelperVersion(withReply reply: @escaping (String) -> Void)

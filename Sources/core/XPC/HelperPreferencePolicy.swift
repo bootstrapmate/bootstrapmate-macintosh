@@ -72,3 +72,20 @@ public enum HelperPreferencePolicy {
         return dict[key] != nil
     }
 }
+
+/// Decides whether a run the helper starts needs an administrator.
+///
+/// The runner reads the machine's saved settings itself, so a run with no
+/// arguments, or only the flags below, does what the machine is already set
+/// to do and any user may start it. Every other argument changes where
+/// BootstrapMate fetches from, how it authenticates or what it does, so the
+/// helper accepts it only with an administrator's authorization. The helper
+/// makes this decision from the arguments it receives, never from the client.
+public enum HelperRunPolicy {
+    /// Flags that only add logging or keep the Mac unchanged.
+    public static let harmlessArguments: Set<String> = ["--verbose", "--dry-run"]
+
+    public static func requiresAdmin(_ arguments: [String]) -> Bool {
+        arguments.contains { !harmlessArguments.contains($0) }
+    }
+}

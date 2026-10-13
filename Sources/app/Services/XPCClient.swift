@@ -20,6 +20,9 @@ final class XPCClient: NSObject {
     var connectionError: String?
 
     private var connection: NSXPCConnection?
+    /// The administrator authorization a run with unsaved settings holds,
+    /// freed when the run ends, is stopped or loses the helper.
+    private var runAuthorization: AdminAuthorization?
 
     struct OutputLine: Identifiable {
         let id = UUID()
@@ -104,8 +107,17 @@ final class XPCClient: NSObject {
 
     // MARK: - Running Bootstrap
 
-    func runBootstrap(additionalArguments: [String] = []) {
+    /// Starts a run. With `needsAdmin` the arguments carry settings the
+    /// machine has not saved, so an administrator authenticates first and
+    /// the helper checks that authorization; cancelling starts nothing.
+    func runBootstrap(additionalArguments: [String] = [], needsAdmin: Bool = false) {
         guard !isRunning else { return }
+        var authorization = Data()
+        if needsAdmin {
+            guard let admin = AdminAuthorization.authorize() else { return }
+            runAuthorization = admin
+            authorization = admin.externalForm
+        }
 
         isRunning = true
         lastExitCode = nil
@@ -119,7 +131,7 @@ final class XPCClient: NSObject {
         connect()
 
         helperProxy { proxy in
-            proxy.runBootstrap(arguments: arguments)
+            proxy.runBootstrap(arguments: arguments, authorization: authorization)
         }
     }
 
@@ -131,36 +143,44 @@ final class XPCClient: NSObject {
         }
         isRunning = false
         lastExitCode = nil
+        releaseRunAuthorization()
         outputLines.append(OutputLine(text: "[WARNING] Bootstrap process stopped by user.", level: .warning))
     }
 
     // MARK: - Preference Management
 
-    func setStringPreference(key: String, value: String) {
-        connect()
-        helperProxy { proxy in
-            proxy.setPreference(key: key, stringValue: value, domain: BootstrapMateConstants.daemonIdentifier) { _ in }
+    /// Performs one preference write with an administrator's authorization and
+    /// returns whether the helper accepted it.
+    func perform(_ write: BootstrapPreferenceWrite, authorization: Data) async -> Bool {
+        let domain = BootstrapMateConstants.daemonIdentifier
+        return await callHelper { proxy, reply in
+            switch write {
+            case .string(let key, let value):
+                proxy.setPreference(key: key, stringValue: value, domain: domain, authorization: authorization, withReply: reply)
+            case .bool(let key, let value):
+                proxy.setBoolPreference(key: key, boolValue: value, domain: domain, authorization: authorization, withReply: reply)
+            case .int(let key, let value):
+                proxy.setIntPreference(key: key, intValue: value, domain: domain, authorization: authorization, withReply: reply)
+            case .remove(let key):
+                proxy.removePreference(key: key, domain: domain, authorization: authorization, withReply: reply)
+            }
         }
     }
 
-    func setBoolPreference(key: String, value: Bool) {
+    /// Calls the helper and waits for its reply; a refused or broken connection
+    /// counts as a failed write rather than leaving the caller waiting.
+    private func callHelper(
+        _ body: @escaping @Sendable (HelperXPCProtocol, @escaping @Sendable (Bool) -> Void) -> Void
+    ) async -> Bool {
         connect()
-        helperProxy { proxy in
-            proxy.setBoolPreference(key: key, boolValue: value, domain: BootstrapMateConstants.daemonIdentifier) { _ in }
-        }
-    }
-
-    func setIntPreference(key: String, value: Int) {
-        connect()
-        helperProxy { proxy in
-            proxy.setIntPreference(key: key, intValue: value, domain: BootstrapMateConstants.daemonIdentifier) { _ in }
-        }
-    }
-
-    func removePreference(key: String) {
-        connect()
-        helperProxy { proxy in
-            proxy.removePreference(key: key, domain: BootstrapMateConstants.daemonIdentifier) { _ in }
+        guard let conn = connection else { return false }
+        return await withCheckedContinuation { continuation in
+            let once = ResumeOnce(continuation)
+            guard let proxy = conn.remoteObjectProxyWithErrorHandler({ _ in once.resume(false) }) as? HelperXPCProtocol else {
+                once.resume(false)
+                return
+            }
+            body(proxy) { ok in once.resume(ok) }
         }
     }
 
@@ -195,8 +215,14 @@ final class XPCClient: NSObject {
 
     /// A failed connection during a run must show up in the run output; setting
     /// connectionError alone left the window blank with nothing explaining why.
+    private func releaseRunAuthorization() {
+        runAuthorization?.free()
+        runAuthorization = nil
+    }
+
     private func reportConnectionFailure(_ message: String) {
         connectionError = message
+        releaseRunAuthorization()
         if isRunning {
             outputLines.append(OutputLine(text: "ERROR: \(message). The helper refused the connection or is not running; see the system log for com.github.bootstrapmate.helper.", level: .error))
             isRunning = false
@@ -216,6 +242,25 @@ final class XPCClient: NSObject {
     }
 }
 
+/// Resumes a continuation exactly once, whichever of the reply or the
+/// connection error arrives first.
+private final class ResumeOnce: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<Bool, Never>?
+
+    init(_ continuation: CheckedContinuation<Bool, Never>) {
+        self.continuation = continuation
+    }
+
+    func resume(_ value: Bool) {
+        lock.lock()
+        let pending = continuation
+        continuation = nil
+        lock.unlock()
+        pending?.resume(returning: value)
+    }
+}
+
 // MARK: - HelperXPCClientProtocol
 
 extension XPCClient: HelperXPCClientProtocol {
@@ -231,6 +276,7 @@ extension XPCClient: HelperXPCClientProtocol {
         Task { @MainActor in
             isRunning = false
             lastExitCode = exitCode
+            releaseRunAuthorization()
         }
     }
 

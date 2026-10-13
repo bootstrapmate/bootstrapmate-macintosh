@@ -81,7 +81,7 @@ jobs:
           BUILD_DIR=build
           PKG_ROOT="$BUILD_DIR/pkg-root"
           PACKAGING_DIR=packaging
-          SWIFT_REL=.build/apple/Products/Release
+          SWIFT_REL="$(swift build -c release --arch arm64 --arch x86_64 --show-bin-path)"
           ACTOOL_OUT="$BUILD_DIR/actool-out"
           APP="$PKG_ROOT/Applications/Utilities/Managed Bootstrap Install.app"
           APP_MACOS="$APP/Contents/MacOS"
@@ -98,6 +98,17 @@ jobs:
           cp "$SWIFT_REL/BootstrapMateApp"     "$APP_MACOS/BootstrapMateGUI"
           cp "$SWIFT_REL/BootstrapMateHelper"  "$APP_MACOS/BootstrapMateHelper"
           chmod 755 "$APP_MACOS/managedbootstrapinstall" "$APP_MACOS/BootstrapMateGUI" "$APP_MACOS/BootstrapMateHelper"
+
+          # Stamp the real SDK version, or AppKit draws the pre-macOS 26 window
+          # chrome. vtool breaks the linker's ad-hoc signature, so re-sign ad hoc;
+          # the downstream signing replaces it.
+          SDK_VERSION="$(xcrun --show-sdk-version)"
+          for bin in "$APP_MACOS/managedbootstrapinstall" "$APP_MACOS/BootstrapMateGUI" "$APP_MACOS/BootstrapMateHelper"; do
+            vtool -set-build-version macos 14.0 "$SDK_VERSION" -replace -output "$bin.stamped" "$bin"
+            mv "$bin.stamped" "$bin"
+            codesign --force --sign - "$bin"
+            vtool -show-build "$bin" | grep -q "sdk $SDK_VERSION"
+          done
 
           # Info.plist (version placeholders).
           sed -e "s/{{MARKETING_VERSION}}/$MARKETING_VERSION/g" \
