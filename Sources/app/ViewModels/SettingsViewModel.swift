@@ -129,6 +129,9 @@ final class SettingsViewModel {
 
     private(set) var managedKeys: Set<String> = []
 
+    /// True when a profile forces at least one of the app's keys.
+    var hasManagedSettings: Bool { !managedKeys.isEmpty }
+
     func isManaged(_ key: String) -> Bool {
         managedKeys.contains(ManagementDetector.canonicalKey(for: key))
     }
